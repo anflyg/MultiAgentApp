@@ -6,4 +6,5 @@ __all__ = [
     "storage",
     "orchestrator",
     "cli",
+    "tui",
 ]

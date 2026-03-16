@@ -1,13 +1,16 @@
 from __future__ import annotations
 
+from abc import ABC, abstractmethod
+
 from .models import Task
 
 
-class BaseAgent:
+class BaseAgent(ABC):
     name = "base"
 
+    @abstractmethod
     def run(self, task: Task) -> str:
-        raise NotImplementedError("Agents must implement run(task)")
+        """Execute work for a task and return a result string."""
 
 
 class WriterAgent(BaseAgent):

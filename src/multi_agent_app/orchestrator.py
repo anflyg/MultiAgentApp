@@ -1,14 +1,10 @@
 from __future__ import annotations
 
-from typing import Dict, Literal, Mapping, Protocol
+from typing import Dict, Literal, Mapping
 
 from . import models
+from .agents import BaseAgent
 from .storage import Storage
-
-
-class AgentProtocol(Protocol):
-    def run(self, task: models.Task) -> str:
-        ...
 
 
 class OrchestrationError(RuntimeError):
@@ -18,11 +14,11 @@ class OrchestrationError(RuntimeError):
 class Orchestrator:
     """Routes tasks to named agents and records their actions."""
 
-    def __init__(self, storage: Storage, agents: Mapping[str, AgentProtocol] | None = None) -> None:
+    def __init__(self, storage: Storage, agents: Mapping[str, BaseAgent] | None = None) -> None:
         self.storage = storage
-        self.agents: Dict[str, AgentProtocol] = dict(agents or {})
+        self.agents: Dict[str, BaseAgent] = dict(agents or {})
 
-    def register_agent(self, name: str, agent: AgentProtocol) -> None:
+    def register_agent(self, name: str, agent: BaseAgent) -> None:
         self.agents[name] = agent
 
     def create_session(self, name: str) -> models.Session:

@@ -121,6 +121,20 @@ class Storage:
             created_at=_from_iso(row["created_at"]),
         )
 
+    def list_sessions(self) -> List[models.Session]:
+        rows = self._conn.execute(
+            "SELECT * FROM sessions ORDER BY created_at DESC"
+        ).fetchall()
+        return [
+            models.Session(
+                id=row["id"],
+                name=row["name"],
+                status=row["status"],
+                created_at=_from_iso(row["created_at"]),
+            )
+            for row in rows
+        ]
+
     def add_task(self, task: models.Task) -> None:
         self._conn.execute(
             """
