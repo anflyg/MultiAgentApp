@@ -1,0 +1,10 @@
+# Byte-kod och cache
+__pycache__/
+*.py[cod]
+
+# Virtuell miljö
+.venv/
+
+# Verktyg/IDE
+.vscode/
+.idea/
