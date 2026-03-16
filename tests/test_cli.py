@@ -1,4 +1,4 @@
-from multi_agent_app.cli import run_example_flow
+from multi_agent_app.cli import list_memory_for_session, run_example_flow
 
 
 def test_cli_example_flow_returns_expected_objects():
@@ -11,5 +11,20 @@ def test_cli_example_flow_returns_expected_objects():
 
     assert result["session"].name == "CLI Session"
     assert result["task"].description == "Test the CLI flow"
+    assert result["task"].status == "completed"
+    assert result["task"].owner_agent == "planner"
     assert result["action"].agent_name == "planner"
+    assert result["action"].kind == "result"
     assert len(result["memory_items"]) == 1
+
+
+def test_cli_list_memory_for_session(tmp_path):
+    db_path = tmp_path / "cli_memory.db"
+    result = run_example_flow(
+        db_path=str(db_path),
+        session_name="Memory Session",
+        task_description="Capture memory",
+        agent_name="writer",
+    )
+    memory_items = list_memory_for_session(str(db_path), result["session"].id)
+    assert len(memory_items) == 1
