@@ -51,3 +51,21 @@ class MemoryItem(BaseModel):
     task_id: str | None = None
     content: str
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+class SessionEvent(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str = Field(default_factory=lambda: str(uuid4()))
+    session_id: str
+    event_type: Literal[
+        "session_created",
+        "session_status_changed",
+        "task_created",
+        "task_routed",
+        "task_completed",
+        "task_failed",
+        "memory_created",
+    ]
+    message: str
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))

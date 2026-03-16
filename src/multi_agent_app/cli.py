@@ -29,11 +29,12 @@ def run_example_flow(
         session = orchestrator.create_session(session_name)
         task = orchestrator.create_task(session.id, task_description)
         action = orchestrator.route_task(task, agent_name)
+        saved_session = storage.get_session(session.id)
         saved_task = storage.get_task(task.id)
         memory_items: List[models.MemoryItem] = storage.list_memory_for_task(task.id)
 
         return {
-            "session": session,
+            "session": saved_session or session,
             "task": saved_task or task,
             "action": action,
             "memory_items": memory_items,
@@ -50,6 +51,14 @@ def list_memory_for_session(db_path: str, session_id: str) -> List[models.Memory
         storage.close()
 
 
+def list_history_for_session(db_path: str, session_id: str) -> List[dict]:
+    storage = Storage(db_path=db_path)
+    try:
+        return storage.list_session_history(session_id)
+    finally:
+        storage.close()
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Run a demo multi-agent workflow.")
     parser.add_argument("--db-path", default="multi_agent.db", help="Path to SQLite database file.")
@@ -61,6 +70,11 @@ def main() -> None:
         dest="list_memory_session_id",
         help="List memory items for an existing session id and exit.",
     )
+    parser.add_argument(
+        "--list-history",
+        dest="list_history_session_id",
+        help="List session-level audit history and exit.",
+    )
     args = parser.parse_args()
 
     if args.list_memory_session_id:
@@ -69,6 +83,13 @@ def main() -> None:
         for item in memory_items:
             print(f"- {item.id} [{item.kind}/{item.scope}] agent={item.source_agent} task={item.task_id}")
             print(f"  {item.content}")
+        return
+
+    if args.list_history_session_id:
+        history = list_history_for_session(args.db_path, args.list_history_session_id)
+        print(f"Session {args.list_history_session_id}: {len(history)} history event(s)")
+        for item in history:
+            print(f"- {item['created_at'].isoformat()} [{item['source']}/{item['kind']}] {item['message']}")
         return
 
     try:

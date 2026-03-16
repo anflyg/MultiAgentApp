@@ -67,6 +67,14 @@ class Storage:
                 FOREIGN KEY(session_id) REFERENCES sessions(id),
                 FOREIGN KEY(task_id) REFERENCES tasks(id)
             );
+            CREATE TABLE IF NOT EXISTS session_events (
+                id TEXT PRIMARY KEY,
+                session_id TEXT NOT NULL,
+                event_type TEXT NOT NULL,
+                message TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                FOREIGN KEY(session_id) REFERENCES sessions(id)
+            );
             """
         )
         self._ensure_column("sessions", "status", "TEXT NOT NULL DEFAULT 'active'")
@@ -255,6 +263,64 @@ class Storage:
             ],
         )
         self._conn.commit()
+
+    def add_session_event(self, event: models.SessionEvent) -> None:
+        self._conn.execute(
+            """
+            INSERT OR REPLACE INTO session_events (id, session_id, event_type, message, created_at)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (event.id, event.session_id, event.event_type, event.message, _to_iso(event.created_at)),
+        )
+        self._conn.commit()
+
+    def list_session_events(self, session_id: str) -> List[models.SessionEvent]:
+        rows = self._conn.execute(
+            "SELECT * FROM session_events WHERE session_id = ? ORDER BY created_at",
+            (session_id,),
+        ).fetchall()
+        return [
+            models.SessionEvent(
+                id=row["id"],
+                session_id=row["session_id"],
+                event_type=row["event_type"],
+                message=row["message"],
+                created_at=_from_iso(row["created_at"]),
+            )
+            for row in rows
+        ]
+
+    def list_session_history(self, session_id: str) -> List[dict]:
+        history: List[dict] = []
+        for event in self.list_session_events(session_id):
+            history.append(
+                {
+                    "created_at": event.created_at,
+                    "source": "event",
+                    "kind": event.event_type,
+                    "message": event.message,
+                }
+            )
+        for action in self.list_agent_actions_for_session(session_id):
+            history.append(
+                {
+                    "created_at": action.created_at,
+                    "source": "agent_action",
+                    "kind": action.kind,
+                    "message": f"{action.agent_name}: {action.content}",
+                }
+            )
+        for memory in self.list_memory_items(session_id):
+            history.append(
+                {
+                    "created_at": memory.created_at,
+                    "source": "memory",
+                    "kind": memory.kind,
+                    "message": memory.content,
+                }
+            )
+        history.sort(key=lambda item: item["created_at"])
+        return history
 
     def list_memory_items(self, session_id: str) -> List[models.MemoryItem]:
         rows = self._conn.execute(

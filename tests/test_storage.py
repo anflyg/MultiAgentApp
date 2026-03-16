@@ -61,4 +61,21 @@ def test_storage_persists_richer_fields():
     assert len(memory_by_task) == 1
     assert memory_by_task[0].source_agent == "writer"
 
+    storage.add_session_event(
+        models.SessionEvent(
+            session_id=session.id,
+            event_type="session_status_changed",
+            message="Session status changed: active -> completed",
+        )
+    )
+    events = storage.list_session_events(session.id)
+    assert len(events) == 1
+    assert events[0].event_type == "session_status_changed"
+
+    history = storage.list_session_history(session.id)
+    assert len(history) >= 3
+    assert any(item["source"] == "event" for item in history)
+    assert any(item["source"] == "agent_action" for item in history)
+    assert any(item["source"] == "memory" for item in history)
+
     storage.close()

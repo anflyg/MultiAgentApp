@@ -34,10 +34,16 @@ def test_orchestrator_success_sets_owner_and_result_kind():
     assert stored_task is not None
     assert stored_task.owner_agent == "success"
     assert stored_task.status == "completed"
+    stored_session = storage.get_session(session.id)
+    assert stored_session is not None
+    assert stored_session.status == "completed"
 
     memory = storage.list_memory_for_task(task.id)
     assert len(memory) == 1
     assert memory[0].source_agent == "success"
+    session_events = storage.list_session_events(session.id)
+    assert len(session_events) >= 4
+    assert any(event.event_type == "task_completed" for event in session_events)
 
     storage.close()
 
@@ -56,10 +62,15 @@ def test_orchestrator_failure_sets_failed_and_error_action():
     assert stored_task is not None
     assert stored_task.owner_agent == "failing"
     assert stored_task.status == "failed"
+    stored_session = storage.get_session(session.id)
+    assert stored_session is not None
+    assert stored_session.status == "failed"
 
     actions = storage.list_agent_actions(task.id)
     assert len(actions) == 1
     assert actions[0].kind == "error"
     assert "intentionally" in actions[0].content
+    session_events = storage.list_session_events(session.id)
+    assert any(event.event_type == "task_failed" for event in session_events)
 
     storage.close()
