@@ -1,11 +1,6 @@
-"""Entrypoint for MultiAgentApp.
+"""CLI entrypoint forwarding to multi_agent_app.cli."""
 
-Run with `python src/main.py` after activating the virtual environment.
-"""
-
-
-def main() -> None:
-    print("Hello from MultiAgentApp!")
+from multi_agent_app.cli import main
 
 
 if __name__ == "__main__":

@@ -1,2 +1,2 @@
-# Lägg dina beroenden här, t.ex.:
-# requests==2.32.3
+pydantic>=2.7.0
+pytest>=8.1.0
