@@ -1,5 +1,7 @@
 import sys
 
+import pytest
+
 from multi_agent_app.cli import (
     add_task_to_session,
     create_session,
@@ -271,3 +273,55 @@ def test_cli_list_decisions_command(tmp_path, capsys, monkeypatch):
     global_output = capsys.readouterr().out
     assert "all active" in global_output
     assert "Keep logs" in global_output
+
+
+def test_cli_create_decision_invalid_session_fails(tmp_path, capsys, monkeypatch):
+    db_path = tmp_path / "decision_invalid_create_cli.db"
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "main.py",
+            "--db-path",
+            str(db_path),
+            "create-decision",
+            "--session-id",
+            "DIN_SESSION_ID",
+            "--title",
+            "Invalid",
+            "--topic",
+            "Validation",
+            "--text",
+            "Should fail",
+        ],
+    )
+    with pytest.raises(SystemExit) as exc_info:
+        main()
+    output = capsys.readouterr().out
+    assert exc_info.value.code == 1
+    assert "Decision creation failed" in output
+    assert "DIN_SESSION_ID" in output
+
+
+def test_cli_list_decisions_invalid_session_fails(tmp_path, capsys, monkeypatch):
+    db_path = tmp_path / "decision_invalid_list_cli.db"
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "main.py",
+            "--db-path",
+            str(db_path),
+            "list-decisions",
+            "--session-id",
+            "DIN_SESSION_ID",
+        ],
+    )
+    with pytest.raises(SystemExit) as exc_info:
+        main()
+    output = capsys.readouterr().out
+    assert exc_info.value.code == 1
+    assert "Decision listing failed" in output
+    assert "DIN_SESSION_ID" in output

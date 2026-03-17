@@ -109,6 +109,9 @@ def create_decision(
 ) -> models.Decision:
     storage = Storage(db_path=db_path)
     try:
+        session = storage.get_session(session_id)
+        if session is None:
+            raise ValueError(f"Session '{session_id}' was not found")
         decision = models.Decision(
             session_id=session_id,
             title=title,
@@ -135,6 +138,9 @@ def list_decisions(db_path: str, session_id: str | None = None) -> List[models.D
     storage = Storage(db_path=db_path)
     try:
         if session_id:
+            session = storage.get_session(session_id)
+            if session is None:
+                raise ValueError(f"Session '{session_id}' was not found")
             return storage.list_decisions_for_session(session_id)
         return storage.list_active_decisions()
     finally:
@@ -309,16 +315,20 @@ def main() -> None:
         return
 
     if args.command == "create-decision":
-        decision = create_decision(
-            db_path=args.db_path,
-            session_id=args.session_id,
-            title=args.title,
-            topic=args.topic,
-            decision_text=args.decision_text,
-            rationale=args.rationale,
-            owner=args.owner,
-            tags=args.tags,
-        )
+        try:
+            decision = create_decision(
+                db_path=args.db_path,
+                session_id=args.session_id,
+                title=args.title,
+                topic=args.topic,
+                decision_text=args.decision_text,
+                rationale=args.rationale,
+                owner=args.owner,
+                tags=args.tags,
+            )
+        except ValueError as exc:
+            print(f"Decision creation failed: {exc}")
+            raise SystemExit(1) from exc
         print(f"Created decision: {decision.id}")
         print(f"Session: {decision.session_id}")
         print(f"Title: {decision.title}")
@@ -328,7 +338,11 @@ def main() -> None:
         return
 
     if args.command == "list-decisions":
-        decisions = list_decisions(args.db_path, session_id=args.session_id)
+        try:
+            decisions = list_decisions(args.db_path, session_id=args.session_id)
+        except ValueError as exc:
+            print(f"Decision listing failed: {exc}")
+            raise SystemExit(1) from exc
         scope = args.session_id if args.session_id else "all active"
         print(f"Decisions ({scope}): {len(decisions)}")
         for decision in decisions:
