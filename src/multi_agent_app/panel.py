@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from typing import TypedDict
 
 from . import models
@@ -12,6 +13,167 @@ class PanelContext(TypedDict):
     open_candidates: list[models.DecisionCandidate]
     open_suggestions: list[models.DecisionSuggestion]
     decision_links: list[models.DecisionLink]
+
+
+_DEVIATION_SIGNALS = [
+    "ändå",
+    "trots",
+    "i stället",
+    "ändra",
+    "byta",
+    "ompröva",
+    "gå vidare med",
+    "öppna danmark ändå",
+    "instead",
+    "despite",
+    "override",
+    "bypass",
+]
+
+_STRONG_CONFLICT_SIGNALS = [
+    "ändå",
+    "trots",
+    "i stället",
+    "override",
+    "bypass",
+    "despite",
+    "öppna danmark ändå",
+]
+
+_EXECUTION_SIGNALS = [
+    "hur",
+    "implementera",
+    "vem",
+    "när",
+    "nästa steg",
+    "förtydliga",
+    "how",
+    "implement",
+    "who",
+    "when",
+    "next step",
+]
+
+_STOPWORDS = {
+    "the",
+    "and",
+    "for",
+    "that",
+    "this",
+    "with",
+    "from",
+    "into",
+    "som",
+    "och",
+    "det",
+    "den",
+    "att",
+    "från",
+    "med",
+    "ska",
+    "kan",
+    "vad",
+    "hur",
+    "när",
+    "vem",
+    "topic",
+    "decision",
+}
+
+
+def _normalize(text: str) -> str:
+    return " ".join(text.lower().strip().split())
+
+
+def _contains_any(text: str, terms: list[str]) -> list[str]:
+    hits: list[str] = []
+    for term in terms:
+        if term in text:
+            hits.append(term)
+    return hits
+
+
+def _keywords(text: str) -> set[str]:
+    tokens = re.findall(r"[a-zåäö0-9]{3,}", _normalize(text))
+    return {token for token in tokens if token not in _STOPWORDS}
+
+
+def assess_question_against_active_decisions(
+    question: str, active_decisions: list[models.Decision]
+) -> models.DecisionAlignmentAssessment:
+    normalized_question = _normalize(question)
+    if not active_decisions:
+        return models.DecisionAlignmentAssessment(
+            alignment="clarification_needed",
+            reason="No active governing decisions were found for this topic.",
+            challenge_points=["No active decision baseline exists yet."],
+        )
+
+    decision_ids = [decision.id for decision in active_decisions]
+    question_keywords = _keywords(normalized_question)
+    decision_keywords: set[str] = set()
+    for decision in active_decisions:
+        decision_keywords |= _keywords(f"{decision.title} {decision.decision_text}")
+    overlap = sorted(question_keywords & decision_keywords)
+
+    deviation_hits = _contains_any(normalized_question, _DEVIATION_SIGNALS)
+    strong_conflict_hits = _contains_any(normalized_question, _STRONG_CONFLICT_SIGNALS)
+    execution_hits = _contains_any(normalized_question, _EXECUTION_SIGNALS)
+
+    if strong_conflict_hits:
+        challenge_points = [
+            f"Question includes strong deviation signals: {', '.join(sorted(set(strong_conflict_hits)))}.",
+            "Question should be treated as likely inconsistent with current active direction.",
+        ]
+        challenge_points.extend(
+            f"Review active decision {decision.id} ({decision.title}) before proceeding."
+            for decision in active_decisions[:3]
+        )
+        return models.DecisionAlignmentAssessment(
+            alignment="likely_new_decision_required",
+            reason="Question likely proposes an exception or reversal against active decisions.",
+            active_decision_ids=decision_ids,
+            challenge_points=challenge_points,
+        )
+
+    if deviation_hits:
+        challenge_points = [
+            f"Question includes deviation signals: {', '.join(sorted(set(deviation_hits)))}.",
+            "Validate whether this is a controlled exception or a decision change.",
+        ]
+        challenge_points.extend(
+            f"Check impact on active decision {decision.id} ({decision.title})."
+            for decision in active_decisions[:3]
+        )
+        return models.DecisionAlignmentAssessment(
+            alignment="potential_deviation",
+            reason="Question may diverge from current direction and should be challenged explicitly.",
+            active_decision_ids=decision_ids,
+            challenge_points=challenge_points,
+        )
+
+    if execution_hits:
+        return models.DecisionAlignmentAssessment(
+            alignment="clarification_needed",
+            reason="Question appears execution-oriented and needs operational clarification within active decisions.",
+            active_decision_ids=decision_ids,
+            challenge_points=["Clarify execution details, ownership, and sequencing against active decisions."],
+        )
+
+    if overlap:
+        return models.DecisionAlignmentAssessment(
+            alignment="aligned",
+            reason="Question appears aligned with active decision content.",
+            active_decision_ids=decision_ids,
+            challenge_points=[],
+        )
+
+    return models.DecisionAlignmentAssessment(
+        alignment="clarification_needed",
+        reason="Question does not map clearly to active decision wording; clarification is needed.",
+        active_decision_ids=decision_ids,
+        challenge_points=["Clarify which active decision this question is intended to follow."],
+    )
 
 
 def build_context_packet(
@@ -63,18 +225,27 @@ def build_context_packet(
     }
 
 
-def strateg_response(question: str, context: PanelContext) -> str:
-    if not context["active_decisions"]:
-        return "No active decisions exist for this topic, so strategic direction is currently undefined."
-    if context["open_suggestions"]:
+def strateg_response(
+    question: str, context: PanelContext, assessment: models.DecisionAlignmentAssessment
+) -> str:
+    if assessment.alignment == "likely_new_decision_required":
         return (
-            "Current strategy has active guidance, but open suggestions indicate potential directional updates "
-            "or clarifications."
+            "Question appears to challenge current strategic direction and should not be treated as normal execution. "
+            "Escalate as a new decision request."
         )
-    return "Current strategic direction appears stable and consistent with active decisions in this topic."
+    if assessment.alignment == "potential_deviation":
+        return (
+            "Question may signal a strategic deviation. Confirm if this is an intentional direction change before "
+            "continuing."
+        )
+    if assessment.alignment == "clarification_needed":
+        return "Question reads as execution/clarification work; strategic direction remains governed by active decisions."
+    return "Question appears aligned with current strategic direction and can proceed under active decisions."
 
 
-def analyst_response(question: str, context: PanelContext) -> str:
+def analyst_response(
+    question: str, context: PanelContext, assessment: models.DecisionAlignmentAssessment
+) -> str:
     risk_flags: list[str] = []
     if context["open_suggestions"]:
         risk_flags.append(f"{len(context['open_suggestions'])} open suggestion(s)")
@@ -87,69 +258,78 @@ def analyst_response(question: str, context: PanelContext) -> str:
     return "Potential risk indicators: " + ", ".join(risk_flags) + "."
 
 
-def operator_response(question: str, context: PanelContext) -> str:
+def operator_response(
+    question: str, context: PanelContext, assessment: models.DecisionAlignmentAssessment
+) -> str:
     if not context["active_decisions"]:
         return "First create a concrete decision for this topic, then assign owner and implementation steps."
+    if assessment.alignment in {"potential_deviation", "likely_new_decision_required"}:
+        return (
+            "Pause rollout changes and open explicit decision handling. Keep current implementation constrained to "
+            "existing active decisions until governance confirms."
+        )
     return (
         "Execute against active decisions, confirm ownership, and convert open suggestions/candidates into explicit "
         "accept, dismiss, or new decision actions."
     )
 
 
-def governance_response(question: str, context: PanelContext) -> str:
+def governance_response(
+    question: str, context: PanelContext, assessment: models.DecisionAlignmentAssessment
+) -> str:
     if not context["active_decisions"]:
         return "No active governing decisions were found for this topic."
-    governed = ", ".join(decision.id for decision in context["active_decisions"][:5])
-    return f"Active governing decisions for this topic: {governed}."
+    governed = ", ".join(
+        f"{decision.id} ({decision.title})" for decision in context["active_decisions"][:5]
+    )
+    if assessment.alignment == "aligned":
+        mode = "execution within current decision"
+    elif assessment.alignment == "clarification_needed":
+        mode = "clarification of current decision"
+    else:
+        mode = "potential new decision"
+    return f"Active governing decisions: {governed}. Treat this question as: {mode}."
 
 
-def likely_requires_new_decision(question: str, context: PanelContext) -> str:
-    normalized_question = question.lower()
-    divergence_words = [
-        "change",
-        "replace",
-        "switch",
-        "instead",
-        "reconsider",
-        "override",
-        "deprecate",
-        "migrate",
-        "stop",
-    ]
-    execution_words = [
-        "how",
-        "when",
-        "who",
-        "implement",
-        "rollout",
-        "timeline",
-        "execute",
-        "operational",
-    ]
-    has_divergence = any(word in normalized_question for word in divergence_words)
-    has_execution = any(word in normalized_question for word in execution_words)
-
-    if has_divergence and context["active_decisions"]:
-        return "yes"
-    if has_execution and context["active_decisions"] and not context["open_suggestions"]:
+def likely_requires_new_decision(assessment: models.DecisionAlignmentAssessment) -> str:
+    if assessment.alignment == "aligned":
         return "no"
+    if assessment.alignment == "likely_new_decision_required":
+        return "yes"
     return "probably"
 
 
-def combined_recommendation(question: str, context: PanelContext) -> str:
+def combined_recommendation(
+    question: str, context: PanelContext, assessment: models.DecisionAlignmentAssessment
+) -> str:
     if not context["active_decisions"]:
         return "Create and confirm a new decision for this topic before execution."
+    if assessment.alignment == "likely_new_decision_required":
+        return (
+            "Do not proceed as routine execution. Raise an explicit new decision, document the proposed deviation, "
+            "and resolve governance before action."
+        )
+    if assessment.alignment == "potential_deviation":
+        return (
+            "Treat as possible deviation: capture exception rationale, run leadership review, and decide whether to "
+            "amend or supersede active decisions."
+        )
     if context["open_suggestions"] or context["open_candidates"]:
         return "Review open suggestions/candidates first, then either link or record a new decision."
     return "Proceed with execution under current active decisions and monitor for new conflicts."
 
 
-def suggested_next_step(question: str, context: PanelContext) -> str:
+def suggested_next_step(
+    question: str, context: PanelContext, assessment: models.DecisionAlignmentAssessment
+) -> str:
     if not context["active_decisions"]:
         return "Create a decision candidate and run confirmation."
+    if assessment.alignment == "likely_new_decision_required":
+        return "Create a new decision candidate describing the intended deviation and submit for confirmation."
+    if assessment.alignment == "potential_deviation":
+        return "Create an explicit clarification/exception candidate before changing execution direction."
     if context["open_suggestions"]:
         return "List and resolve open decision suggestions for this topic."
     if context["open_candidates"]:
         return "Confirm or dismiss open decision candidates for this topic."
     return "Assign implementation owner for the active decision set."
-

@@ -7,3 +7,4 @@ def test_tui_smoke_import_and_init():
 
     app = MultiAgentTUI(db_path=":memory:")
     assert app.db_path == ":memory:"
+    assert hasattr(app, "_refresh_dashboard")

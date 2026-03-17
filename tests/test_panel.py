@@ -2,7 +2,7 @@ import sys
 
 from multi_agent_app import models
 from multi_agent_app.cli import ask_decision_panel, create_decision, create_session, main
-from multi_agent_app.panel import build_context_packet
+from multi_agent_app.panel import assess_question_against_active_decisions, build_context_packet
 from multi_agent_app.storage import Storage
 
 
@@ -64,12 +64,18 @@ def test_ask_decision_panel_with_relevant_decisions_stores_question_and_response
     session = create_session(str(db_path), "Panel Data")
     create_decision(str(db_path), session.id, "Direction", "Platform", "Use SQLite.")
 
-    question, context, responses, combined, likely_new_decision, next_step = ask_decision_panel(
+    question, context, assessment, responses, combined, likely_new_decision, next_step = ask_decision_panel(
         db_path=str(db_path),
         question="How should we execute this plan?",
         topic="Platform",
     )
     assert question.id
+    assert assessment.alignment in {
+        "aligned",
+        "clarification_needed",
+        "potential_deviation",
+        "likely_new_decision_required",
+    }
     assert len(responses) == 4
     assert context["active_decisions"]
     assert combined
@@ -90,13 +96,14 @@ def test_ask_decision_panel_with_no_decisions_still_returns_structure(tmp_path):
     db_path = tmp_path / "panel_no_data.db"
     create_session(str(db_path), "Panel No Data")
 
-    question, context, responses, combined, likely_new_decision, next_step = ask_decision_panel(
+    question, context, assessment, responses, combined, likely_new_decision, next_step = ask_decision_panel(
         db_path=str(db_path),
         question="What should we do next for this area?",
         topic="UnknownTopic",
     )
     assert question.id
     assert len(context["active_decisions"]) == 0
+    assert assessment.alignment == "clarification_needed"
     governance = next(response for response in responses if response.agent_name == "governance")
     assert "No active governing decisions" in governance.response_text
     assert combined
@@ -109,13 +116,60 @@ def test_governance_mentions_active_decisions_when_present(tmp_path):
     session = create_session(str(db_path), "Panel Governance")
     decision = create_decision(str(db_path), session.id, "Govern", "Security", "Enforce MFA.")
 
-    _, _, responses, _, _, _ = ask_decision_panel(
+    _, _, _, responses, _, _, _ = ask_decision_panel(
         db_path=str(db_path),
         question="Does current policy cover this?",
         topic="Security",
     )
     governance = next(response for response in responses if response.agent_name == "governance")
     assert decision.id in governance.response_text
+    assert decision.title in governance.response_text
+
+
+def test_assessment_execution_question_is_aligned_or_clarification_needed(tmp_path):
+    db_path = tmp_path / "panel_execution_assessment.db"
+    session = create_session(str(db_path), "Panel Execution Assessment")
+    decision = create_decision(str(db_path), session.id, "Deploy Policy", "Release", "Use staged rollout.")
+    assessment = assess_question_against_active_decisions(
+        "Hur implementera staged rollout nästa steg?",
+        [decision],
+    )
+    assert assessment.alignment in {"aligned", "clarification_needed"}
+
+
+def test_assessment_deviation_question_detected(tmp_path):
+    db_path = tmp_path / "panel_deviation_assessment.db"
+    session = create_session(str(db_path), "Panel Deviation Assessment")
+    decision = create_decision(str(db_path), session.id, "Country Rollout", "Expansion", "Wait for Norway readiness.")
+    assessment = assess_question_against_active_decisions(
+        "Kan vi byta riktning och gå vidare med Danmark?",
+        [decision],
+    )
+    assert assessment.alignment == "potential_deviation"
+
+
+def test_assessment_explicit_conflict_detected(tmp_path):
+    db_path = tmp_path / "panel_conflict_assessment.db"
+    session = create_session(str(db_path), "Panel Conflict Assessment")
+    create_decision(
+        str(db_path),
+        session.id,
+        "Nordic sequencing",
+        "Expansion",
+        "Open Denmark only after Norway is stable.",
+    )
+    _, _, assessment, responses, combined, likely_new_decision, _ = ask_decision_panel(
+        db_path=str(db_path),
+        question="Ska vi öppna Danmark ändå trots att Norge är försenat?",
+        topic="Expansion",
+    )
+    assert assessment.alignment == "likely_new_decision_required"
+    assert likely_new_decision == "yes"
+    strateg = next(response for response in responses if response.agent_name == "strateg")
+    governance = next(response for response in responses if response.agent_name == "governance")
+    assert "challenge" in strateg.response_text.lower() or "deviation" in strateg.response_text.lower()
+    assert "potential new decision" in governance.response_text.lower()
+    assert "do not proceed as routine execution" in combined.lower()
 
 
 def test_ask_decision_panel_output_includes_required_sections(tmp_path, capsys, monkeypatch):
@@ -145,6 +199,8 @@ def test_ask_decision_panel_output_includes_required_sections(tmp_path, capsys, 
     assert "Historical decisions:" in output
     assert "Open decision candidates:" in output
     assert "Open decision suggestions:" in output
+    assert "Decision alignment assessment:" in output
+    assert "Challenge points:" in output
     assert "Strateg:" in output
     assert "Analyst:" in output
     assert "Operator:" in output
@@ -152,4 +208,3 @@ def test_ask_decision_panel_output_includes_required_sections(tmp_path, capsys, 
     assert "Combined recommendation:" in output
     assert "Likely requires new decision?:" in output
     assert "Suggested next step:" in output
-

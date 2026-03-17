@@ -8,6 +8,7 @@ from . import models
 from .agents import BaseAgent, PlannerAgent, ReviewerAgent, WriterAgent
 from .orchestrator import OrchestrationError, Orchestrator
 from .panel import (
+    assess_question_against_active_decisions,
     build_context_packet,
     combined_recommendation,
     governance_response,
@@ -557,7 +558,15 @@ def dismiss_decision_suggestion(db_path: str, suggestion_id: str) -> models.Deci
 
 def ask_decision_panel(
     db_path: str, question: str, topic: str, session_id: str | None = None
-) -> tuple[models.PanelQuestion, dict, list[models.PanelResponse], str, str, str]:
+) -> tuple[
+    models.PanelQuestion,
+    dict,
+    models.DecisionAlignmentAssessment,
+    list[models.PanelResponse],
+    str,
+    str,
+    str,
+]:
     normalized_question = question.strip()
     normalized_topic = topic.strip()
     if not normalized_question:
@@ -578,12 +587,15 @@ def ask_decision_panel(
         )
         storage.add_panel_question(panel_question)
         context = build_context_packet(storage, topic=normalized_topic, session_id=session_id)
+        assessment = assess_question_against_active_decisions(
+            normalized_question, context["active_decisions"]
+        )
 
         role_outputs = {
-            "strateg": strateg_response(normalized_question, context),
-            "analyst": analyst_response(normalized_question, context),
-            "operator": operator_response(normalized_question, context),
-            "governance": governance_response(normalized_question, context),
+            "strateg": strateg_response(normalized_question, context, assessment),
+            "analyst": analyst_response(normalized_question, context, assessment),
+            "operator": operator_response(normalized_question, context, assessment),
+            "governance": governance_response(normalized_question, context, assessment),
         }
         responses = [
             models.PanelResponse(
@@ -609,10 +621,10 @@ def ask_decision_panel(
         ]
         storage.add_panel_responses(responses)
 
-        combined = combined_recommendation(normalized_question, context)
-        likely_new_decision = likely_requires_new_decision(normalized_question, context)
-        next_step = suggested_next_step(normalized_question, context)
-        return panel_question, context, responses, combined, likely_new_decision, next_step
+        combined = combined_recommendation(normalized_question, context, assessment)
+        likely_new_decision = likely_requires_new_decision(assessment)
+        next_step = suggested_next_step(normalized_question, context, assessment)
+        return panel_question, context, assessment, responses, combined, likely_new_decision, next_step
     finally:
         storage.close()
 
@@ -1056,7 +1068,7 @@ def main() -> None:
 
     if args.command == "ask-decision-panel":
         try:
-            panel_question, context, responses, combined, likely_new_decision, next_step = ask_decision_panel(
+            panel_question, context, assessment, responses, combined, likely_new_decision, next_step = ask_decision_panel(
                 db_path=args.db_path,
                 question=args.question,
                 topic=args.topic,
@@ -1098,6 +1110,14 @@ def main() -> None:
                     f"- {suggestion.id} [{suggestion.suggestion_type}] "
                     f"{suggestion.source_decision_id} -> {suggestion.target_decision_id}"
                 )
+        else:
+            print("- none")
+
+        print(f"Decision alignment assessment: {assessment.alignment} ({assessment.reason})")
+        print("Challenge points:")
+        if assessment.challenge_points:
+            for point in assessment.challenge_points:
+                print(f"- {point}")
         else:
             print("- none")
 

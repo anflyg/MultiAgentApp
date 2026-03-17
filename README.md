@@ -1,6 +1,6 @@
 # MultiAgentApp
 
-En enkel lokal multi-agent-app med Pydantic-modeller, SQLite-persistence och en orchestrator som kan routea uppgifter till namngivna agenter. Innehaller CLI och en minimal Textual-baserad TUI.
+En enkel lokal multi-agent-app med Pydantic-modeller, SQLite-persistence och en orchestrator som kan routea uppgifter till namngivna agenter. Innehaller CLI och en Textual-baserad leadership dashboard.
 
 ## Kom igang
 
@@ -31,18 +31,35 @@ En enkel lokal multi-agent-app med Pydantic-modeller, SQLite-persistence och en 
 - Sessionshistorik:
   - `python src/main.py session-history --session-id <session_id>`
 
-## TUI (Textual)
+## TUI (Textual leadership dashboard)
 
 - Starta TUI via CLI:
   - `python src/main.py tui --db-path multi_agent.db`
 - Alternativt direkt:
   - `python -m multi_agent_app.tui --db-path multi_agent.db`
 
-I TUI:n kan du:
-- lista sessions
-- valja en session
-- se tasks och sessionhistorik
-- routea vald task till vald agent
+Dashboarden visar vid start:
+- summary/metrics:
+  - active decisions
+  - open decision candidates
+  - open decision suggestions
+  - senaste session-events (senaste 10)
+- active decisions-lista
+- open decision candidates
+- open decision suggestions
+- recent activity
+- decision detail-panel for vald aktivt beslut (inklusive inkommande/utgaende links)
+- ask-panel-sektion (topic + question) som kor befintlig decision-panel-logik
+
+I dashboarden kan du:
+- refresha all oversikt-data
+- valja ett aktivt beslut och se detaljer
+- skriva topic + question och fa strukturerat panel-svar direkt i UI
+
+I denna iteration sker fortfarande skapande/hantering via CLI:
+- create/confirm/dismiss av candidates
+- create/accept/dismiss av suggestions
+- explicita link-operations
 
 ## Paketstruktur
 
@@ -50,7 +67,8 @@ I TUI:n kan du:
 - `src/multi_agent_app/storage.py` - SQLite-baserad persistence.
 - `src/multi_agent_app/orchestrator.py` - Orchestrator som routear uppgifter till agenter och loggar livscykel/history.
 - `src/multi_agent_app/cli.py` - CLI och exempelflode.
-- `src/multi_agent_app/tui.py` - Minimal Textual-baserad terminal UI.
+- `src/multi_agent_app/tui.py` - Textual-baserad leadership dashboard.
+- `src/multi_agent_app/panel.py` - Deterministisk decision-panel-logik och alignment-bedomning.
 - `src/main.py` - Entrypoint som vidarebefordrar till CLI.
 
 ## Tester

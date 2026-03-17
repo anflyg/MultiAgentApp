@@ -151,3 +151,17 @@ class PanelResponse(BaseModel):
     agent_name: Literal["strateg", "analyst", "operator", "governance"]
     response_text: str
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+class DecisionAlignmentAssessment(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    alignment: Literal[
+        "aligned",
+        "clarification_needed",
+        "potential_deviation",
+        "likely_new_decision_required",
+    ]
+    reason: str
+    active_decision_ids: list[str] = Field(default_factory=list)
+    challenge_points: list[str] = Field(default_factory=list)

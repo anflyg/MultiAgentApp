@@ -79,3 +79,77 @@ def test_storage_persists_richer_fields():
     assert any(item["source"] == "memory" for item in history)
 
     storage.close()
+
+
+def test_storage_recent_and_open_decision_helpers():
+    storage = Storage(db_path=":memory:")
+    session = models.Session(name="Helper Session")
+    storage.add_session(session)
+
+    decision = models.Decision(
+        session_id=session.id,
+        title="Decision A",
+        topic="Topic",
+        decision_text="Use option A",
+    )
+    storage.add_decision(decision)
+
+    candidate = models.DecisionCandidate(
+        session_id=session.id,
+        title="Candidate A",
+        topic="Topic",
+        candidate_text="Maybe option B",
+        status="proposed",
+    )
+    storage.add_decision_candidate(candidate)
+
+    storage.add_session_event(
+        models.SessionEvent(
+            session_id=session.id,
+            event_type="decision_created",
+            message="Decision created",
+        )
+    )
+    storage.add_session_event(
+        models.SessionEvent(
+            session_id=session.id,
+            event_type="decision_candidate_created",
+            message="Candidate created",
+        )
+    )
+
+    suggestion = models.DecisionSuggestion(
+        source_decision_id=decision.id,
+        target_decision_id=decision.id,
+        suggestion_type="possible_conflict",
+        reason="Review conflict",
+    )
+    # Need distinct source/target ids for FK and uniqueness constraints.
+    decision_b = models.Decision(
+        session_id=session.id,
+        title="Decision B",
+        topic="Topic",
+        decision_text="Use option B",
+    )
+    storage.add_decision(decision_b)
+    suggestion = models.DecisionSuggestion(
+        source_decision_id=decision.id,
+        target_decision_id=decision_b.id,
+        suggestion_type="possible_conflict",
+        reason="Review conflict",
+    )
+    storage.add_decision_suggestion(suggestion)
+
+    recent_events = storage.list_recent_session_events(limit=1)
+    assert len(recent_events) == 1
+    assert recent_events[0].event_type in {"decision_created", "decision_candidate_created"}
+
+    open_candidates = storage.list_open_decision_candidates()
+    assert len(open_candidates) == 1
+    assert open_candidates[0].id == candidate.id
+
+    open_suggestions = storage.list_open_decision_suggestions()
+    assert len(open_suggestions) == 1
+    assert open_suggestions[0].id == suggestion.id
+
+    storage.close()

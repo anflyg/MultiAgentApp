@@ -556,6 +556,9 @@ class Storage:
         ).fetchall()
         return [self._decision_suggestion_from_row(row) for row in rows]
 
+    def list_open_decision_suggestions(self) -> List[models.DecisionSuggestion]:
+        return self.list_open_suggestions()
+
     def _decision_suggestion_from_row(self, row: sqlite3.Row) -> models.DecisionSuggestion:
         return models.DecisionSuggestion(
             id=row["id"],
@@ -704,6 +707,22 @@ class Storage:
         rows = self._conn.execute(
             "SELECT * FROM session_events WHERE session_id = ? ORDER BY created_at",
             (session_id,),
+        ).fetchall()
+        return [
+            models.SessionEvent(
+                id=row["id"],
+                session_id=row["session_id"],
+                event_type=row["event_type"],
+                message=row["message"],
+                created_at=_from_iso(row["created_at"]),
+            )
+            for row in rows
+        ]
+
+    def list_recent_session_events(self, limit: int = 10) -> List[models.SessionEvent]:
+        rows = self._conn.execute(
+            "SELECT * FROM session_events ORDER BY created_at DESC LIMIT ?",
+            (limit,),
         ).fetchall()
         return [
             models.SessionEvent(
