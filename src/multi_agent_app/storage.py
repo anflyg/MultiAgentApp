@@ -115,6 +115,18 @@ class Storage:
                 FOREIGN KEY(to_decision_id) REFERENCES decisions(id),
                 UNIQUE(from_decision_id, to_decision_id, relation_type)
             );
+            CREATE TABLE IF NOT EXISTS decision_suggestions (
+                id TEXT PRIMARY KEY,
+                source_decision_id TEXT NOT NULL,
+                target_decision_id TEXT NOT NULL,
+                suggestion_type TEXT NOT NULL,
+                reason TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'open',
+                created_at TEXT NOT NULL,
+                FOREIGN KEY(source_decision_id) REFERENCES decisions(id),
+                FOREIGN KEY(target_decision_id) REFERENCES decisions(id),
+                UNIQUE(source_decision_id, target_decision_id, suggestion_type)
+            );
             """
         )
         self._ensure_column("sessions", "status", "TEXT NOT NULL DEFAULT 'active'")
@@ -473,6 +485,69 @@ class Storage:
             from_decision_id=row["from_decision_id"],
             to_decision_id=row["to_decision_id"],
             relation_type=row["relation_type"],
+            created_at=_from_iso(row["created_at"]),
+        )
+
+    def add_decision_suggestion(self, suggestion: models.DecisionSuggestion) -> None:
+        self._conn.execute(
+            """
+            INSERT INTO decision_suggestions (
+                id, source_decision_id, target_decision_id, suggestion_type, reason, status, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                suggestion.id,
+                suggestion.source_decision_id,
+                suggestion.target_decision_id,
+                suggestion.suggestion_type,
+                suggestion.reason,
+                suggestion.status,
+                _to_iso(suggestion.created_at),
+            ),
+        )
+        self._conn.commit()
+
+    def get_decision_suggestion(self, suggestion_id: str) -> Optional[models.DecisionSuggestion]:
+        row = self._conn.execute(
+            "SELECT * FROM decision_suggestions WHERE id = ?",
+            (suggestion_id,),
+        ).fetchone()
+        if not row:
+            return None
+        return self._decision_suggestion_from_row(row)
+
+    def update_decision_suggestion_status(self, suggestion_id: str, status: str) -> None:
+        self._conn.execute(
+            "UPDATE decision_suggestions SET status = ? WHERE id = ?",
+            (status, suggestion_id),
+        )
+        self._conn.commit()
+
+    def list_suggestions_for_decision(self, decision_id: str) -> List[models.DecisionSuggestion]:
+        rows = self._conn.execute(
+            """
+            SELECT * FROM decision_suggestions
+            WHERE source_decision_id = ? OR target_decision_id = ?
+            ORDER BY created_at DESC
+            """,
+            (decision_id, decision_id),
+        ).fetchall()
+        return [self._decision_suggestion_from_row(row) for row in rows]
+
+    def list_open_suggestions(self) -> List[models.DecisionSuggestion]:
+        rows = self._conn.execute(
+            "SELECT * FROM decision_suggestions WHERE status = 'open' ORDER BY created_at DESC"
+        ).fetchall()
+        return [self._decision_suggestion_from_row(row) for row in rows]
+
+    def _decision_suggestion_from_row(self, row: sqlite3.Row) -> models.DecisionSuggestion:
+        return models.DecisionSuggestion(
+            id=row["id"],
+            source_decision_id=row["source_decision_id"],
+            target_decision_id=row["target_decision_id"],
+            suggestion_type=row["suggestion_type"],
+            reason=row["reason"],
+            status=row["status"],
             created_at=_from_iso(row["created_at"]),
         )
 

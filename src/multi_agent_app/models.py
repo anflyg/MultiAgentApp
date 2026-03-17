@@ -71,6 +71,9 @@ class SessionEvent(BaseModel):
         "decision_candidate_confirmed",
         "decision_candidate_dismissed",
         "decision_link_created",
+        "decision_suggestion_created",
+        "decision_suggestion_accepted",
+        "decision_suggestion_dismissed",
     ]
     message: str
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
@@ -115,4 +118,16 @@ class DecisionLink(BaseModel):
     from_decision_id: str
     to_decision_id: str
     relation_type: Literal["supersedes", "clarifies", "supplements"]
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+class DecisionSuggestion(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str = Field(default_factory=lambda: str(uuid4()))
+    source_decision_id: str
+    target_decision_id: str
+    suggestion_type: Literal["related_decision", "possible_supersedes", "possible_conflict"]
+    reason: str
+    status: Literal["open", "accepted", "dismissed"] = "open"
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))

@@ -10,6 +10,34 @@ from .orchestrator import OrchestrationError, Orchestrator
 from .storage import Storage
 
 _RELATION_TYPES = {"supersedes", "clarifies", "supplements"}
+_AUTO_LINKABLE_SUGGESTIONS = {
+    "related_decision": "supplements",
+    "possible_supersedes": "supersedes",
+}
+
+
+def _add_suggestion_event(
+    storage: Storage,
+    source_decision: models.Decision,
+    target_decision: models.Decision,
+    event_type: str,
+    message: str,
+) -> None:
+    storage.add_session_event(
+        models.SessionEvent(
+            session_id=source_decision.session_id,
+            event_type=event_type,
+            message=message,
+        )
+    )
+    if source_decision.session_id != target_decision.session_id:
+        storage.add_session_event(
+            models.SessionEvent(
+                session_id=target_decision.session_id,
+                event_type=event_type,
+                message=message,
+            )
+        )
 
 
 def _default_agents() -> Dict[str, BaseAgent]:
@@ -358,6 +386,165 @@ def show_decision(
         storage.close()
 
 
+def suggest_decision_links(db_path: str, decision_id: str) -> List[models.DecisionSuggestion]:
+    storage = Storage(db_path=db_path)
+    try:
+        source_decision = storage.get_decision(decision_id)
+        if source_decision is None:
+            raise ValueError(f"Decision '{decision_id}' was not found")
+
+        created: List[models.DecisionSuggestion] = []
+        for target_decision in storage.list_active_decisions():
+            if target_decision.id == source_decision.id:
+                continue
+            if target_decision.topic != source_decision.topic:
+                continue
+
+            candidates = [
+                (
+                    "related_decision",
+                    f"Decisions share topic '{source_decision.topic}'.",
+                )
+            ]
+            if target_decision.decision_text != source_decision.decision_text:
+                candidates.append(
+                    (
+                        "possible_supersedes",
+                        f"Decisions share topic '{source_decision.topic}' but have different decision text.",
+                    )
+                )
+
+            for suggestion_type, reason in candidates:
+                suggestion = models.DecisionSuggestion(
+                    source_decision_id=source_decision.id,
+                    target_decision_id=target_decision.id,
+                    suggestion_type=suggestion_type,
+                    reason=reason,
+                )
+                try:
+                    storage.add_decision_suggestion(suggestion)
+                except sqlite3.IntegrityError:
+                    continue
+                _add_suggestion_event(
+                    storage=storage,
+                    source_decision=source_decision,
+                    target_decision=target_decision,
+                    event_type="decision_suggestion_created",
+                    message=(
+                        f"Decision suggestion '{suggestion.id}' created: {suggestion.suggestion_type} "
+                        f"source={suggestion.source_decision_id} target={suggestion.target_decision_id}"
+                    ),
+                )
+                created.append(suggestion)
+        return created
+    finally:
+        storage.close()
+
+
+def list_decision_suggestions(
+    db_path: str, decision_id: str | None = None
+) -> List[models.DecisionSuggestion]:
+    storage = Storage(db_path=db_path)
+    try:
+        if decision_id:
+            decision = storage.get_decision(decision_id)
+            if decision is None:
+                raise ValueError(f"Decision '{decision_id}' was not found")
+            return storage.list_suggestions_for_decision(decision_id)
+        return storage.list_open_suggestions()
+    finally:
+        storage.close()
+
+
+def accept_decision_suggestion(
+    db_path: str, suggestion_id: str
+) -> tuple[models.DecisionSuggestion, models.DecisionLink]:
+    storage = Storage(db_path=db_path)
+    try:
+        suggestion = storage.get_decision_suggestion(suggestion_id)
+        if suggestion is None:
+            raise ValueError(f"Decision suggestion '{suggestion_id}' was not found")
+        if suggestion.status != "open":
+            raise ValueError(
+                f"Decision suggestion '{suggestion_id}' is '{suggestion.status}' and cannot be accepted"
+            )
+        source_decision = storage.get_decision(suggestion.source_decision_id)
+        target_decision = storage.get_decision(suggestion.target_decision_id)
+        if source_decision is None:
+            raise ValueError(f"Source decision '{suggestion.source_decision_id}' was not found")
+        if target_decision is None:
+            raise ValueError(f"Target decision '{suggestion.target_decision_id}' was not found")
+    finally:
+        storage.close()
+
+    relation_type = _AUTO_LINKABLE_SUGGESTIONS.get(suggestion.suggestion_type)
+    if relation_type is None:
+        raise ValueError(
+            f"Suggestion type '{suggestion.suggestion_type}' cannot be auto-accepted yet"
+        )
+    link = link_decisions(
+        db_path=db_path,
+        from_decision_id=suggestion.source_decision_id,
+        to_decision_id=suggestion.target_decision_id,
+        relation_type=relation_type,
+    )
+
+    storage = Storage(db_path=db_path)
+    try:
+        storage.update_decision_suggestion_status(suggestion.id, "accepted")
+        _add_suggestion_event(
+            storage=storage,
+            source_decision=source_decision,
+            target_decision=target_decision,
+            event_type="decision_suggestion_accepted",
+            message=(
+                f"Decision suggestion '{suggestion.id}' accepted: {suggestion.suggestion_type} "
+                f"source={suggestion.source_decision_id} target={suggestion.target_decision_id}"
+            ),
+        )
+        updated = storage.get_decision_suggestion(suggestion.id)
+        if updated is None:
+            raise ValueError(f"Decision suggestion '{suggestion_id}' was not found after update")
+        return updated, link
+    finally:
+        storage.close()
+
+
+def dismiss_decision_suggestion(db_path: str, suggestion_id: str) -> models.DecisionSuggestion:
+    storage = Storage(db_path=db_path)
+    try:
+        suggestion = storage.get_decision_suggestion(suggestion_id)
+        if suggestion is None:
+            raise ValueError(f"Decision suggestion '{suggestion_id}' was not found")
+        if suggestion.status != "open":
+            raise ValueError(
+                f"Decision suggestion '{suggestion_id}' is '{suggestion.status}' and cannot be dismissed"
+            )
+        source_decision = storage.get_decision(suggestion.source_decision_id)
+        target_decision = storage.get_decision(suggestion.target_decision_id)
+        if source_decision is None:
+            raise ValueError(f"Source decision '{suggestion.source_decision_id}' was not found")
+        if target_decision is None:
+            raise ValueError(f"Target decision '{suggestion.target_decision_id}' was not found")
+        storage.update_decision_suggestion_status(suggestion.id, "dismissed")
+        _add_suggestion_event(
+            storage=storage,
+            source_decision=source_decision,
+            target_decision=target_decision,
+            event_type="decision_suggestion_dismissed",
+            message=(
+                f"Decision suggestion '{suggestion.id}' dismissed: {suggestion.suggestion_type} "
+                f"source={suggestion.source_decision_id} target={suggestion.target_decision_id}"
+            ),
+        )
+        updated = storage.get_decision_suggestion(suggestion.id)
+        if updated is None:
+            raise ValueError(f"Decision suggestion '{suggestion_id}' was not found after update")
+        return updated
+    finally:
+        storage.close()
+
+
 def run_example_flow(
     db_path: str = "multi_agent.db",
     session_name: str = "Demo Session",
@@ -488,6 +675,24 @@ def _build_parser() -> argparse.ArgumentParser:
 
     show_decision_parser = subparsers.add_parser("show-decision", help="Show decision details and related links.")
     show_decision_parser.add_argument("--decision-id", required=True, help="Decision id.")
+
+    suggest_links_parser = subparsers.add_parser(
+        "suggest-decision-links", help="Generate heuristic link suggestions for a decision."
+    )
+    suggest_links_parser.add_argument("--decision-id", required=True, help="Decision id to evaluate.")
+
+    list_suggestions_parser = subparsers.add_parser("list-decision-suggestions", help="List decision suggestions.")
+    list_suggestions_parser.add_argument("--decision-id", help="Optional decision id.")
+
+    accept_suggestion_parser = subparsers.add_parser(
+        "accept-decision-suggestion", help="Accept an open decision suggestion."
+    )
+    accept_suggestion_parser.add_argument("--suggestion-id", required=True, help="Suggestion id.")
+
+    dismiss_suggestion_parser = subparsers.add_parser(
+        "dismiss-decision-suggestion", help="Dismiss an open decision suggestion."
+    )
+    dismiss_suggestion_parser.add_argument("--suggestion-id", required=True, help="Suggestion id.")
 
     subparsers.add_parser("tui", help="Launch Textual terminal UI.")
 
@@ -717,6 +922,59 @@ def main() -> None:
         print(f"Incoming links: {len(incoming_links)}")
         for link in incoming_links:
             print(f"- {link.id} [{link.relation_type}] {link.from_decision_id} -> {link.to_decision_id}")
+        return
+
+    if args.command == "suggest-decision-links":
+        try:
+            suggestions = suggest_decision_links(args.db_path, args.decision_id)
+        except ValueError as exc:
+            print(f"Decision suggestion generation failed: {exc}")
+            raise SystemExit(1) from exc
+        print(f"Created decision suggestions: {len(suggestions)}")
+        for suggestion in suggestions:
+            print(
+                f"- {suggestion.id} [{suggestion.suggestion_type}] "
+                f"{suggestion.source_decision_id} -> {suggestion.target_decision_id}"
+            )
+            print(f"  reason: {suggestion.reason}")
+        return
+
+    if args.command == "list-decision-suggestions":
+        try:
+            suggestions = list_decision_suggestions(args.db_path, decision_id=args.decision_id)
+        except ValueError as exc:
+            print(f"Decision suggestion listing failed: {exc}")
+            raise SystemExit(1) from exc
+        scope = args.decision_id if args.decision_id else "all open"
+        print(f"Decision suggestions ({scope}): {len(suggestions)}")
+        for suggestion in suggestions:
+            print(
+                f"- {suggestion.id} [{suggestion.status}/{suggestion.suggestion_type}] "
+                f"{suggestion.source_decision_id} -> {suggestion.target_decision_id}"
+            )
+            print(f"  reason: {suggestion.reason}")
+        return
+
+    if args.command == "accept-decision-suggestion":
+        try:
+            suggestion, link = accept_decision_suggestion(args.db_path, args.suggestion_id)
+        except ValueError as exc:
+            print(f"Decision suggestion accept failed: {exc}")
+            raise SystemExit(1) from exc
+        print(f"Accepted decision suggestion: {suggestion.id}")
+        print(f"Suggestion status: {suggestion.status}")
+        print(f"Created decision link: {link.id}")
+        print(f"Relation: {link.relation_type}")
+        return
+
+    if args.command == "dismiss-decision-suggestion":
+        try:
+            suggestion = dismiss_decision_suggestion(args.db_path, args.suggestion_id)
+        except ValueError as exc:
+            print(f"Decision suggestion dismissal failed: {exc}")
+            raise SystemExit(1) from exc
+        print(f"Dismissed decision suggestion: {suggestion.id}")
+        print(f"Suggestion status: {suggestion.status}")
         return
 
     if args.command == "tui":
