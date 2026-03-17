@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import sqlite3
 from datetime import datetime, timezone
 from typing import Iterable, List, Optional
@@ -75,6 +76,21 @@ class Storage:
                 created_at TEXT NOT NULL,
                 FOREIGN KEY(session_id) REFERENCES sessions(id)
             );
+            CREATE TABLE IF NOT EXISTS decisions (
+                id TEXT PRIMARY KEY,
+                session_id TEXT NOT NULL,
+                title TEXT NOT NULL,
+                topic TEXT NOT NULL,
+                decision_text TEXT NOT NULL,
+                rationale TEXT,
+                status TEXT NOT NULL DEFAULT 'active',
+                owner TEXT,
+                created_at TEXT NOT NULL,
+                effective_from TEXT,
+                review_date TEXT,
+                tags TEXT NOT NULL DEFAULT '[]',
+                FOREIGN KEY(session_id) REFERENCES sessions(id)
+            );
             """
         )
         self._ensure_column("sessions", "status", "TEXT NOT NULL DEFAULT 'active'")
@@ -86,6 +102,12 @@ class Storage:
         self._ensure_column("memory_items", "kind", "TEXT NOT NULL DEFAULT 'fact'")
         self._ensure_column("memory_items", "source_agent", "TEXT")
         self._ensure_column("memory_items", "task_id", "TEXT")
+        self._ensure_column("decisions", "rationale", "TEXT")
+        self._ensure_column("decisions", "status", "TEXT NOT NULL DEFAULT 'active'")
+        self._ensure_column("decisions", "owner", "TEXT")
+        self._ensure_column("decisions", "effective_from", "TEXT")
+        self._ensure_column("decisions", "review_date", "TEXT")
+        self._ensure_column("decisions", "tags", "TEXT NOT NULL DEFAULT '[]'")
         self._conn.commit()
 
     def _ensure_column(self, table: str, column: str, definition: str) -> None:
@@ -287,6 +309,69 @@ class Storage:
             (event.id, event.session_id, event.event_type, event.message, _to_iso(event.created_at)),
         )
         self._conn.commit()
+
+    def add_decision(self, decision: models.Decision) -> None:
+        self._conn.execute(
+            """
+            INSERT OR REPLACE INTO decisions (
+                id, session_id, title, topic, decision_text, rationale, status, owner,
+                created_at, effective_from, review_date, tags
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                decision.id,
+                decision.session_id,
+                decision.title,
+                decision.topic,
+                decision.decision_text,
+                decision.rationale,
+                decision.status,
+                decision.owner,
+                _to_iso(decision.created_at),
+                _to_iso(decision.effective_from) if decision.effective_from else None,
+                _to_iso(decision.review_date) if decision.review_date else None,
+                json.dumps(decision.tags),
+            ),
+        )
+        self._conn.commit()
+
+    def get_decision(self, decision_id: str) -> Optional[models.Decision]:
+        row = self._conn.execute(
+            "SELECT * FROM decisions WHERE id = ?",
+            (decision_id,),
+        ).fetchone()
+        if not row:
+            return None
+        return self._decision_from_row(row)
+
+    def list_decisions_for_session(self, session_id: str) -> List[models.Decision]:
+        rows = self._conn.execute(
+            "SELECT * FROM decisions WHERE session_id = ? ORDER BY created_at DESC",
+            (session_id,),
+        ).fetchall()
+        return [self._decision_from_row(row) for row in rows]
+
+    def list_active_decisions(self) -> List[models.Decision]:
+        rows = self._conn.execute(
+            "SELECT * FROM decisions WHERE status = 'active' ORDER BY created_at DESC"
+        ).fetchall()
+        return [self._decision_from_row(row) for row in rows]
+
+    def _decision_from_row(self, row: sqlite3.Row) -> models.Decision:
+        return models.Decision(
+            id=row["id"],
+            session_id=row["session_id"],
+            title=row["title"],
+            topic=row["topic"],
+            decision_text=row["decision_text"],
+            rationale=row["rationale"],
+            status=row["status"],
+            owner=row["owner"],
+            created_at=_from_iso(row["created_at"]),
+            effective_from=_from_iso(row["effective_from"]) if row["effective_from"] else None,
+            review_date=_from_iso(row["review_date"]) if row["review_date"] else None,
+            tags=json.loads(row["tags"]) if row["tags"] else [],
+        )
 
     def list_session_events(self, session_id: str) -> List[models.SessionEvent]:
         rows = self._conn.execute(

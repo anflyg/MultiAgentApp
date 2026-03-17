@@ -66,6 +66,24 @@ class SessionEvent(BaseModel):
         "task_completed",
         "task_failed",
         "memory_created",
+        "decision_created",
     ]
     message: str
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+class Decision(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str = Field(default_factory=lambda: str(uuid4()))
+    session_id: str
+    title: str
+    topic: str
+    decision_text: str
+    rationale: str | None = None
+    status: Literal["active", "superseded", "revoked"] = "active"
+    owner: str | None = None
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    effective_from: datetime | None = None
+    review_date: datetime | None = None
+    tags: list[str] = Field(default_factory=list)

@@ -97,6 +97,50 @@ def list_history_for_session(db_path: str, session_id: str) -> List[dict]:
         storage.close()
 
 
+def create_decision(
+    db_path: str,
+    session_id: str,
+    title: str,
+    topic: str,
+    decision_text: str,
+    rationale: str | None = None,
+    owner: str | None = None,
+    tags: List[str] | None = None,
+) -> models.Decision:
+    storage = Storage(db_path=db_path)
+    try:
+        decision = models.Decision(
+            session_id=session_id,
+            title=title,
+            topic=topic,
+            decision_text=decision_text,
+            rationale=rationale,
+            owner=owner,
+            tags=tags or [],
+        )
+        storage.add_decision(decision)
+        storage.add_session_event(
+            models.SessionEvent(
+                session_id=session_id,
+                event_type="decision_created",
+                message=f"Decision '{decision.id}' created: {decision.title}",
+            )
+        )
+        return decision
+    finally:
+        storage.close()
+
+
+def list_decisions(db_path: str, session_id: str | None = None) -> List[models.Decision]:
+    storage = Storage(db_path=db_path)
+    try:
+        if session_id:
+            return storage.list_decisions_for_session(session_id)
+        return storage.list_active_decisions()
+    finally:
+        storage.close()
+
+
 def run_example_flow(
     db_path: str = "multi_agent.db",
     session_name: str = "Demo Session",
@@ -163,6 +207,24 @@ def _build_parser() -> argparse.ArgumentParser:
 
     history_parser = subparsers.add_parser("session-history", help="Show session-level audit history.")
     history_parser.add_argument("--session-id", required=True, help="Session id.")
+
+    create_decision_parser = subparsers.add_parser("create-decision", help="Create a decision for a session.")
+    create_decision_parser.add_argument("--session-id", required=True, help="Session id.")
+    create_decision_parser.add_argument("--title", required=True, help="Decision title.")
+    create_decision_parser.add_argument("--topic", required=True, help="Decision topic.")
+    create_decision_parser.add_argument("--text", dest="decision_text", required=True, help="Decision text.")
+    create_decision_parser.add_argument("--rationale", help="Optional rationale.")
+    create_decision_parser.add_argument("--owner", help="Optional owner.")
+    create_decision_parser.add_argument(
+        "--tag",
+        dest="tags",
+        action="append",
+        default=[],
+        help="Decision tag. Repeat --tag for multiple values.",
+    )
+
+    list_decisions_parser = subparsers.add_parser("list-decisions", help="List decisions.")
+    list_decisions_parser.add_argument("--session-id", help="Optional session id.")
 
     subparsers.add_parser("tui", help="Launch Textual terminal UI.")
 
@@ -244,6 +306,36 @@ def main() -> None:
         print(f"Session {args.session_id}: {len(history)} history event(s)")
         for item in history:
             print(f"- {item['created_at'].isoformat()} [{item['source']}/{item['kind']}] {item['message']}")
+        return
+
+    if args.command == "create-decision":
+        decision = create_decision(
+            db_path=args.db_path,
+            session_id=args.session_id,
+            title=args.title,
+            topic=args.topic,
+            decision_text=args.decision_text,
+            rationale=args.rationale,
+            owner=args.owner,
+            tags=args.tags,
+        )
+        print(f"Created decision: {decision.id}")
+        print(f"Session: {decision.session_id}")
+        print(f"Title: {decision.title}")
+        print(f"Topic: {decision.topic}")
+        print(f"Status: {decision.status}")
+        print(f"Tags: {', '.join(decision.tags) if decision.tags else '-'}")
+        return
+
+    if args.command == "list-decisions":
+        decisions = list_decisions(args.db_path, session_id=args.session_id)
+        scope = args.session_id if args.session_id else "all active"
+        print(f"Decisions ({scope}): {len(decisions)}")
+        for decision in decisions:
+            print(
+                f"- {decision.id} [{decision.status}] session={decision.session_id} topic={decision.topic} title={decision.title}"
+            )
+            print(f"  {decision.decision_text}")
         return
 
     if args.command == "tui":

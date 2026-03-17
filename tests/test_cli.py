@@ -10,6 +10,7 @@ from multi_agent_app.cli import (
     route_task_by_id,
     run_example_flow,
 )
+from multi_agent_app.storage import Storage
 
 
 def test_cli_example_flow_returns_expected_objects():
@@ -169,3 +170,104 @@ def test_cli_show_session_command(tmp_path, capsys, monkeypatch):
     assert "Session" in captured
     assert "Tasks: 1" in captured
     assert "History:" in captured
+
+
+def test_cli_create_decision_command_adds_event(tmp_path, capsys, monkeypatch):
+    db_path = tmp_path / "decision_create_cli.db"
+    session = create_session(str(db_path), "Decision Session")
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "main.py",
+            "--db-path",
+            str(db_path),
+            "create-decision",
+            "--session-id",
+            session.id,
+            "--title",
+            "Use SQLite",
+            "--topic",
+            "Persistence",
+            "--text",
+            "Use SQLite as decision store",
+            "--rationale",
+            "Portable and simple",
+            "--owner",
+            "platform",
+            "--tag",
+            "db",
+            "--tag",
+            "step1",
+        ],
+    )
+    main()
+    captured = capsys.readouterr().out
+    assert "Created decision:" in captured
+    assert "Use SQLite" in captured
+
+    storage = Storage(db_path=str(db_path))
+    try:
+        events = storage.list_session_events(session.id)
+        assert any(event.event_type == "decision_created" for event in events)
+    finally:
+        storage.close()
+
+
+def test_cli_list_decisions_command(tmp_path, capsys, monkeypatch):
+    db_path = tmp_path / "decision_list_cli.db"
+    session = create_session(str(db_path), "Decision List Session")
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "main.py",
+            "--db-path",
+            str(db_path),
+            "create-decision",
+            "--session-id",
+            session.id,
+            "--title",
+            "Keep logs",
+            "--topic",
+            "Observability",
+            "--text",
+            "Retain logs for 30 days",
+        ],
+    )
+    main()
+    capsys.readouterr()
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "main.py",
+            "--db-path",
+            str(db_path),
+            "list-decisions",
+            "--session-id",
+            session.id,
+        ],
+    )
+    main()
+    session_output = capsys.readouterr().out
+    assert "Decisions" in session_output
+    assert "Keep logs" in session_output
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "main.py",
+            "--db-path",
+            str(db_path),
+            "list-decisions",
+        ],
+    )
+    main()
+    global_output = capsys.readouterr().out
+    assert "all active" in global_output
+    assert "Keep logs" in global_output
