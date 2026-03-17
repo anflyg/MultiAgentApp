@@ -127,6 +127,22 @@ class Storage:
                 FOREIGN KEY(target_decision_id) REFERENCES decisions(id),
                 UNIQUE(source_decision_id, target_decision_id, suggestion_type)
             );
+            CREATE TABLE IF NOT EXISTS panel_questions (
+                id TEXT PRIMARY KEY,
+                question TEXT NOT NULL,
+                topic TEXT NOT NULL,
+                session_id TEXT,
+                created_at TEXT NOT NULL,
+                FOREIGN KEY(session_id) REFERENCES sessions(id)
+            );
+            CREATE TABLE IF NOT EXISTS panel_responses (
+                id TEXT PRIMARY KEY,
+                question_id TEXT NOT NULL,
+                agent_name TEXT NOT NULL,
+                response_text TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                FOREIGN KEY(question_id) REFERENCES panel_questions(id)
+            );
             """
         )
         self._ensure_column("sessions", "status", "TEXT NOT NULL DEFAULT 'active'")
@@ -550,6 +566,74 @@ class Storage:
             status=row["status"],
             created_at=_from_iso(row["created_at"]),
         )
+
+    def add_panel_question(self, question: models.PanelQuestion) -> None:
+        self._conn.execute(
+            """
+            INSERT OR REPLACE INTO panel_questions (
+                id, question, topic, session_id, created_at
+            ) VALUES (?, ?, ?, ?, ?)
+            """,
+            (
+                question.id,
+                question.question,
+                question.topic,
+                question.session_id,
+                _to_iso(question.created_at),
+            ),
+        )
+        self._conn.commit()
+
+    def get_panel_question(self, question_id: str) -> Optional[models.PanelQuestion]:
+        row = self._conn.execute(
+            "SELECT * FROM panel_questions WHERE id = ?",
+            (question_id,),
+        ).fetchone()
+        if not row:
+            return None
+        return models.PanelQuestion(
+            id=row["id"],
+            question=row["question"],
+            topic=row["topic"],
+            session_id=row["session_id"],
+            created_at=_from_iso(row["created_at"]),
+        )
+
+    def add_panel_responses(self, responses: Iterable[models.PanelResponse]) -> None:
+        self._conn.executemany(
+            """
+            INSERT OR REPLACE INTO panel_responses (
+                id, question_id, agent_name, response_text, created_at
+            ) VALUES (?, ?, ?, ?, ?)
+            """,
+            [
+                (
+                    response.id,
+                    response.question_id,
+                    response.agent_name,
+                    response.response_text,
+                    _to_iso(response.created_at),
+                )
+                for response in responses
+            ],
+        )
+        self._conn.commit()
+
+    def list_panel_responses(self, question_id: str) -> List[models.PanelResponse]:
+        rows = self._conn.execute(
+            "SELECT * FROM panel_responses WHERE question_id = ? ORDER BY created_at",
+            (question_id,),
+        ).fetchall()
+        return [
+            models.PanelResponse(
+                id=row["id"],
+                question_id=row["question_id"],
+                agent_name=row["agent_name"],
+                response_text=row["response_text"],
+                created_at=_from_iso(row["created_at"]),
+            )
+            for row in rows
+        ]
 
     def add_decision_candidate(self, candidate: models.DecisionCandidate) -> None:
         self._conn.execute(

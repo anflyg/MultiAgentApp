@@ -131,3 +131,23 @@ class DecisionSuggestion(BaseModel):
     reason: str
     status: Literal["open", "accepted", "dismissed"] = "open"
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+class PanelQuestion(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str = Field(default_factory=lambda: str(uuid4()))
+    question: str
+    topic: str
+    session_id: str | None = None
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+class PanelResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str = Field(default_factory=lambda: str(uuid4()))
+    question_id: str
+    agent_name: Literal["strateg", "analyst", "operator", "governance"]
+    response_text: str
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))

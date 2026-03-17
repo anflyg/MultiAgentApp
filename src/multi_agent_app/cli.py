@@ -7,6 +7,16 @@ from typing import Dict, List
 from . import models
 from .agents import BaseAgent, PlannerAgent, ReviewerAgent, WriterAgent
 from .orchestrator import OrchestrationError, Orchestrator
+from .panel import (
+    build_context_packet,
+    combined_recommendation,
+    governance_response,
+    likely_requires_new_decision,
+    operator_response,
+    strateg_response,
+    suggested_next_step,
+    analyst_response,
+)
 from .storage import Storage
 
 _RELATION_TYPES = {"supersedes", "clarifies", "supplements"}
@@ -545,6 +555,68 @@ def dismiss_decision_suggestion(db_path: str, suggestion_id: str) -> models.Deci
         storage.close()
 
 
+def ask_decision_panel(
+    db_path: str, question: str, topic: str, session_id: str | None = None
+) -> tuple[models.PanelQuestion, dict, list[models.PanelResponse], str, str, str]:
+    normalized_question = question.strip()
+    normalized_topic = topic.strip()
+    if not normalized_question:
+        raise ValueError("Question cannot be empty")
+    if not normalized_topic:
+        raise ValueError("Topic is required")
+
+    storage = Storage(db_path=db_path)
+    try:
+        if session_id:
+            session = storage.get_session(session_id)
+            if session is None:
+                raise ValueError(f"Session '{session_id}' was not found")
+        panel_question = models.PanelQuestion(
+            question=normalized_question,
+            topic=normalized_topic,
+            session_id=session_id,
+        )
+        storage.add_panel_question(panel_question)
+        context = build_context_packet(storage, topic=normalized_topic, session_id=session_id)
+
+        role_outputs = {
+            "strateg": strateg_response(normalized_question, context),
+            "analyst": analyst_response(normalized_question, context),
+            "operator": operator_response(normalized_question, context),
+            "governance": governance_response(normalized_question, context),
+        }
+        responses = [
+            models.PanelResponse(
+                question_id=panel_question.id,
+                agent_name="strateg",
+                response_text=role_outputs["strateg"],
+            ),
+            models.PanelResponse(
+                question_id=panel_question.id,
+                agent_name="analyst",
+                response_text=role_outputs["analyst"],
+            ),
+            models.PanelResponse(
+                question_id=panel_question.id,
+                agent_name="operator",
+                response_text=role_outputs["operator"],
+            ),
+            models.PanelResponse(
+                question_id=panel_question.id,
+                agent_name="governance",
+                response_text=role_outputs["governance"],
+            ),
+        ]
+        storage.add_panel_responses(responses)
+
+        combined = combined_recommendation(normalized_question, context)
+        likely_new_decision = likely_requires_new_decision(normalized_question, context)
+        next_step = suggested_next_step(normalized_question, context)
+        return panel_question, context, responses, combined, likely_new_decision, next_step
+    finally:
+        storage.close()
+
+
 def run_example_flow(
     db_path: str = "multi_agent.db",
     session_name: str = "Demo Session",
@@ -693,6 +765,11 @@ def _build_parser() -> argparse.ArgumentParser:
         "dismiss-decision-suggestion", help="Dismiss an open decision suggestion."
     )
     dismiss_suggestion_parser.add_argument("--suggestion-id", required=True, help="Suggestion id.")
+
+    ask_panel_parser = subparsers.add_parser("ask-decision-panel", help="Ask the leadership decision support panel.")
+    ask_panel_parser.add_argument("--question", required=True, help="Leadership panel question.")
+    ask_panel_parser.add_argument("--topic", required=True, help="Decision topic.")
+    ask_panel_parser.add_argument("--session-id", help="Optional session scope.")
 
     subparsers.add_parser("tui", help="Launch Textual terminal UI.")
 
@@ -975,6 +1052,62 @@ def main() -> None:
             raise SystemExit(1) from exc
         print(f"Dismissed decision suggestion: {suggestion.id}")
         print(f"Suggestion status: {suggestion.status}")
+        return
+
+    if args.command == "ask-decision-panel":
+        try:
+            panel_question, context, responses, combined, likely_new_decision, next_step = ask_decision_panel(
+                db_path=args.db_path,
+                question=args.question,
+                topic=args.topic,
+                session_id=args.session_id,
+            )
+        except ValueError as exc:
+            print(f"Decision panel failed: {exc}")
+            raise SystemExit(1) from exc
+
+        by_agent = {response.agent_name: response.response_text for response in responses}
+        print(f"Question: {panel_question.question}")
+        print(f"Topic: {panel_question.topic}")
+
+        print("Relevant active decisions:")
+        if context["active_decisions"]:
+            for decision in context["active_decisions"]:
+                print(f"- {decision.id} title={decision.title}")
+        else:
+            print("- none")
+
+        print("Historical decisions:")
+        if context["historical_decisions"]:
+            for decision in context["historical_decisions"]:
+                print(f"- {decision.id} title={decision.title}")
+        else:
+            print("- none")
+
+        print("Open decision candidates:")
+        if context["open_candidates"]:
+            for candidate in context["open_candidates"]:
+                print(f"- {candidate.id} title={candidate.title}")
+        else:
+            print("- none")
+
+        print("Open decision suggestions:")
+        if context["open_suggestions"]:
+            for suggestion in context["open_suggestions"]:
+                print(
+                    f"- {suggestion.id} [{suggestion.suggestion_type}] "
+                    f"{suggestion.source_decision_id} -> {suggestion.target_decision_id}"
+                )
+        else:
+            print("- none")
+
+        print(f"Strateg: {by_agent['strateg']}")
+        print(f"Analyst: {by_agent['analyst']}")
+        print(f"Operator: {by_agent['operator']}")
+        print(f"Governance: {by_agent['governance']}")
+        print(f"Combined recommendation: {combined}")
+        print(f"Likely requires new decision?: {likely_new_decision}")
+        print(f"Suggested next step: {next_step}")
         return
 
     if args.command == "tui":
