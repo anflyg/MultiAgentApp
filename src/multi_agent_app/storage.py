@@ -105,6 +105,16 @@ class Storage:
                 tags TEXT NOT NULL DEFAULT '[]',
                 FOREIGN KEY(session_id) REFERENCES sessions(id)
             );
+            CREATE TABLE IF NOT EXISTS decision_links (
+                id TEXT PRIMARY KEY,
+                from_decision_id TEXT NOT NULL,
+                to_decision_id TEXT NOT NULL,
+                relation_type TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                FOREIGN KEY(from_decision_id) REFERENCES decisions(id),
+                FOREIGN KEY(to_decision_id) REFERENCES decisions(id),
+                UNIQUE(from_decision_id, to_decision_id, relation_type)
+            );
             """
         )
         self._ensure_column("sessions", "status", "TEXT NOT NULL DEFAULT 'active'")
@@ -389,6 +399,81 @@ class Storage:
             effective_from=_from_iso(row["effective_from"]) if row["effective_from"] else None,
             review_date=_from_iso(row["review_date"]) if row["review_date"] else None,
             tags=json.loads(row["tags"]) if row["tags"] else [],
+        )
+
+    def update_decision_status(self, decision_id: str, status: str) -> None:
+        self._conn.execute(
+            "UPDATE decisions SET status = ? WHERE id = ?",
+            (status, decision_id),
+        )
+        self._conn.commit()
+
+    def add_decision_link(self, link: models.DecisionLink) -> None:
+        self._conn.execute(
+            """
+            INSERT INTO decision_links (
+                id, from_decision_id, to_decision_id, relation_type, created_at
+            ) VALUES (?, ?, ?, ?, ?)
+            """,
+            (
+                link.id,
+                link.from_decision_id,
+                link.to_decision_id,
+                link.relation_type,
+                _to_iso(link.created_at),
+            ),
+        )
+        self._conn.commit()
+
+    def get_decision_link(self, link_id: str) -> Optional[models.DecisionLink]:
+        row = self._conn.execute(
+            "SELECT * FROM decision_links WHERE id = ?",
+            (link_id,),
+        ).fetchone()
+        if not row:
+            return None
+        return self._decision_link_from_row(row)
+
+    def list_links_for_decision(self, decision_id: str) -> List[models.DecisionLink]:
+        rows = self._conn.execute(
+            """
+            SELECT * FROM decision_links
+            WHERE from_decision_id = ? OR to_decision_id = ?
+            ORDER BY created_at DESC
+            """,
+            (decision_id, decision_id),
+        ).fetchall()
+        return [self._decision_link_from_row(row) for row in rows]
+
+    def list_outgoing_links(self, decision_id: str) -> List[models.DecisionLink]:
+        rows = self._conn.execute(
+            """
+            SELECT * FROM decision_links
+            WHERE from_decision_id = ?
+            ORDER BY created_at DESC
+            """,
+            (decision_id,),
+        ).fetchall()
+        return [self._decision_link_from_row(row) for row in rows]
+
+    def list_incoming_links(self, decision_id: str) -> List[models.DecisionLink]:
+        rows = self._conn.execute(
+            """
+            SELECT * FROM decision_links
+            WHERE to_decision_id = ?
+            ORDER BY created_at DESC
+            """,
+            (decision_id,),
+        ).fetchall()
+        return [self._decision_link_from_row(row) for row in rows]
+
+    def _decision_link_from_row(self, row: sqlite3.Row) -> models.DecisionLink:
+        return models.DecisionLink(
+            id=row["id"],
+            from_decision_id=row["from_decision_id"],
+            to_decision_id=row["to_decision_id"],
+            relation_type=row["relation_type"],
+            created_at=_from_iso(row["created_at"]),
         )
 
     def add_decision_candidate(self, candidate: models.DecisionCandidate) -> None:

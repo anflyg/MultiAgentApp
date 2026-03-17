@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import argparse
+import sqlite3
 from typing import Dict, List
 
 from . import models
 from .agents import BaseAgent, PlannerAgent, ReviewerAgent, WriterAgent
 from .orchestrator import OrchestrationError, Orchestrator
 from .storage import Storage
+
+_RELATION_TYPES = {"supersedes", "clarifies", "supplements"}
 
 
 def _default_agents() -> Dict[str, BaseAgent]:
@@ -267,6 +270,94 @@ def dismiss_decision_candidate(db_path: str, candidate_id: str) -> models.Decisi
         storage.close()
 
 
+def link_decisions(
+    db_path: str,
+    from_decision_id: str,
+    to_decision_id: str,
+    relation_type: str,
+) -> models.DecisionLink:
+    if relation_type not in _RELATION_TYPES:
+        raise ValueError(
+            f"Invalid relation type '{relation_type}'. Allowed values: {', '.join(sorted(_RELATION_TYPES))}"
+        )
+    if from_decision_id == to_decision_id:
+        raise ValueError("A decision cannot be linked to itself")
+
+    storage = Storage(db_path=db_path)
+    try:
+        source_decision = storage.get_decision(from_decision_id)
+        if source_decision is None:
+            raise ValueError(f"Source decision '{from_decision_id}' was not found")
+
+        target_decision = storage.get_decision(to_decision_id)
+        if target_decision is None:
+            raise ValueError(f"Target decision '{to_decision_id}' was not found")
+
+        link = models.DecisionLink(
+            from_decision_id=from_decision_id,
+            to_decision_id=to_decision_id,
+            relation_type=relation_type,
+        )
+        try:
+            storage.add_decision_link(link)
+        except sqlite3.IntegrityError as exc:
+            raise ValueError(
+                "Decision link already exists for this source, target, and relation type"
+            ) from exc
+
+        if relation_type == "supersedes":
+            storage.update_decision_status(to_decision_id, "superseded")
+
+        message = (
+            f"Decision link created: {relation_type} "
+            f"source={from_decision_id} target={to_decision_id}"
+        )
+        storage.add_session_event(
+            models.SessionEvent(
+                session_id=source_decision.session_id,
+                event_type="decision_link_created",
+                message=message,
+            )
+        )
+        if source_decision.session_id != target_decision.session_id:
+            storage.add_session_event(
+                models.SessionEvent(
+                    session_id=target_decision.session_id,
+                    event_type="decision_link_created",
+                    message=message,
+                )
+            )
+        return link
+    finally:
+        storage.close()
+
+
+def list_decision_links(db_path: str, decision_id: str) -> List[models.DecisionLink]:
+    storage = Storage(db_path=db_path)
+    try:
+        decision = storage.get_decision(decision_id)
+        if decision is None:
+            raise ValueError(f"Decision '{decision_id}' was not found")
+        return storage.list_links_for_decision(decision_id)
+    finally:
+        storage.close()
+
+
+def show_decision(
+    db_path: str, decision_id: str
+) -> tuple[models.Decision, List[models.DecisionLink], List[models.DecisionLink]]:
+    storage = Storage(db_path=db_path)
+    try:
+        decision = storage.get_decision(decision_id)
+        if decision is None:
+            raise ValueError(f"Decision '{decision_id}' was not found")
+        outgoing_links = storage.list_outgoing_links(decision_id)
+        incoming_links = storage.list_incoming_links(decision_id)
+        return decision, outgoing_links, incoming_links
+    finally:
+        storage.close()
+
+
 def run_example_flow(
     db_path: str = "multi_agent.db",
     session_name: str = "Demo Session",
@@ -381,6 +472,22 @@ def _build_parser() -> argparse.ArgumentParser:
         "dismiss-decision-candidate", help="Dismiss a proposed decision candidate."
     )
     dismiss_candidate_parser.add_argument("--candidate-id", required=True, help="Candidate id.")
+
+    link_decisions_parser = subparsers.add_parser("link-decisions", help="Create an explicit link between decisions.")
+    link_decisions_parser.add_argument("--from-decision-id", required=True, help="Source/newer decision id.")
+    link_decisions_parser.add_argument("--to-decision-id", required=True, help="Target/older decision id.")
+    link_decisions_parser.add_argument(
+        "--relation-type",
+        required=True,
+        choices=sorted(_RELATION_TYPES),
+        help="Type of relation between source and target decisions.",
+    )
+
+    list_links_parser = subparsers.add_parser("list-decision-links", help="List links for a decision.")
+    list_links_parser.add_argument("--decision-id", required=True, help="Decision id.")
+
+    show_decision_parser = subparsers.add_parser("show-decision", help="Show decision details and related links.")
+    show_decision_parser.add_argument("--decision-id", required=True, help="Decision id.")
 
     subparsers.add_parser("tui", help="Launch Textual terminal UI.")
 
@@ -559,6 +666,57 @@ def main() -> None:
             raise SystemExit(1) from exc
         print(f"Dismissed decision candidate: {candidate.id}")
         print(f"Candidate status: {candidate.status}")
+        return
+
+    if args.command == "link-decisions":
+        try:
+            link = link_decisions(
+                db_path=args.db_path,
+                from_decision_id=args.from_decision_id,
+                to_decision_id=args.to_decision_id,
+                relation_type=args.relation_type,
+            )
+        except ValueError as exc:
+            print(f"Decision linking failed: {exc}")
+            raise SystemExit(1) from exc
+        print(f"Created decision link: {link.id}")
+        print(f"Relation: {link.relation_type}")
+        print(f"From decision: {link.from_decision_id}")
+        print(f"To decision: {link.to_decision_id}")
+        return
+
+    if args.command == "list-decision-links":
+        try:
+            links = list_decision_links(args.db_path, args.decision_id)
+        except ValueError as exc:
+            print(f"Decision link listing failed: {exc}")
+            raise SystemExit(1) from exc
+        print(f"Decision links ({args.decision_id}): {len(links)}")
+        for link in links:
+            print(f"- {link.id} [{link.relation_type}] {link.from_decision_id} -> {link.to_decision_id}")
+        return
+
+    if args.command == "show-decision":
+        try:
+            decision, outgoing_links, incoming_links = show_decision(args.db_path, args.decision_id)
+        except ValueError as exc:
+            print(f"Decision show failed: {exc}")
+            raise SystemExit(1) from exc
+        print(f"Decision: {decision.id}")
+        print(f"Session: {decision.session_id}")
+        print(f"Title: {decision.title}")
+        print(f"Topic: {decision.topic}")
+        print(f"Status: {decision.status}")
+        print(f"Owner: {decision.owner or '-'}")
+        print(f"Tags: {', '.join(decision.tags) if decision.tags else '-'}")
+        print(f"Text: {decision.decision_text}")
+        print(f"Rationale: {decision.rationale or '-'}")
+        print(f"Outgoing links: {len(outgoing_links)}")
+        for link in outgoing_links:
+            print(f"- {link.id} [{link.relation_type}] {link.from_decision_id} -> {link.to_decision_id}")
+        print(f"Incoming links: {len(incoming_links)}")
+        for link in incoming_links:
+            print(f"- {link.id} [{link.relation_type}] {link.from_decision_id} -> {link.to_decision_id}")
         return
 
     if args.command == "tui":

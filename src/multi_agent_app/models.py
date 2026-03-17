@@ -70,6 +70,7 @@ class SessionEvent(BaseModel):
         "decision_candidate_created",
         "decision_candidate_confirmed",
         "decision_candidate_dismissed",
+        "decision_link_created",
     ]
     message: str
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
@@ -105,3 +106,13 @@ class DecisionCandidate(BaseModel):
     owner: str | None = None
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     tags: list[str] = Field(default_factory=list)
+
+
+class DecisionLink(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str = Field(default_factory=lambda: str(uuid4()))
+    from_decision_id: str
+    to_decision_id: str
+    relation_type: Literal["supersedes", "clarifies", "supplements"]
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
