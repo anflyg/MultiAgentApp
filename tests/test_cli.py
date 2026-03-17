@@ -325,3 +325,151 @@ def test_cli_list_decisions_invalid_session_fails(tmp_path, capsys, monkeypatch)
     assert exc_info.value.code == 1
     assert "Decision listing failed" in output
     assert "DIN_SESSION_ID" in output
+
+
+def test_cli_create_and_list_decision_candidates(tmp_path, capsys, monkeypatch):
+    db_path = tmp_path / "candidate_cli.db"
+    session = create_session(str(db_path), "Candidate CLI Session")
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "main.py",
+            "--db-path",
+            str(db_path),
+            "create-decision-candidate",
+            "--session-id",
+            session.id,
+            "--title",
+            "Keep default DB",
+            "--topic",
+            "Persistence",
+            "--text",
+            "Keep SQLite for local use",
+            "--tag",
+            "db",
+        ],
+    )
+    main()
+    create_output = capsys.readouterr().out
+    assert "Created decision candidate:" in create_output
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "main.py",
+            "--db-path",
+            str(db_path),
+            "list-decision-candidates",
+        ],
+    )
+    main()
+    list_output = capsys.readouterr().out
+    assert "all proposed" in list_output
+    assert "Keep default DB" in list_output
+
+
+def test_cli_confirm_invalid_candidate_id_fails(tmp_path, capsys, monkeypatch):
+    db_path = tmp_path / "candidate_confirm_invalid_cli.db"
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "main.py",
+            "--db-path",
+            str(db_path),
+            "confirm-decision-candidate",
+            "--candidate-id",
+            "NOPE",
+        ],
+    )
+    with pytest.raises(SystemExit) as exc_info:
+        main()
+    output = capsys.readouterr().out
+    assert exc_info.value.code == 1
+    assert "Decision candidate confirmation failed" in output
+
+
+def test_cli_confirm_non_proposed_candidate_fails(tmp_path, capsys, monkeypatch):
+    db_path = tmp_path / "candidate_confirm_non_proposed_cli.db"
+    session = create_session(str(db_path), "Candidate status session")
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "main.py",
+            "--db-path",
+            str(db_path),
+            "create-decision-candidate",
+            "--session-id",
+            session.id,
+            "--title",
+            "Candidate",
+            "--topic",
+            "Topic",
+            "--text",
+            "Text",
+        ],
+    )
+    main()
+    create_output = capsys.readouterr().out
+    candidate_id = next(line.split(": ", 1)[1].strip() for line in create_output.splitlines() if line.startswith("Created decision candidate:"))
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "main.py",
+            "--db-path",
+            str(db_path),
+            "dismiss-decision-candidate",
+            "--candidate-id",
+            candidate_id,
+        ],
+    )
+    main()
+    capsys.readouterr()
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "main.py",
+            "--db-path",
+            str(db_path),
+            "confirm-decision-candidate",
+            "--candidate-id",
+            candidate_id,
+        ],
+    )
+    with pytest.raises(SystemExit) as exc_info:
+        main()
+    output = capsys.readouterr().out
+    assert exc_info.value.code == 1
+    assert "cannot be confirmed" in output
+
+
+def test_cli_list_decision_candidates_invalid_session_fails(tmp_path, capsys, monkeypatch):
+    db_path = tmp_path / "candidate_invalid_session_cli.db"
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "main.py",
+            "--db-path",
+            str(db_path),
+            "list-decision-candidates",
+            "--session-id",
+            "DIN_SESSION_ID",
+        ],
+    )
+    with pytest.raises(SystemExit) as exc_info:
+        main()
+    output = capsys.readouterr().out
+    assert exc_info.value.code == 1
+    assert "Decision candidate listing failed" in output

@@ -67,6 +67,9 @@ class SessionEvent(BaseModel):
         "task_failed",
         "memory_created",
         "decision_created",
+        "decision_candidate_created",
+        "decision_candidate_confirmed",
+        "decision_candidate_dismissed",
     ]
     message: str
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
@@ -86,4 +89,19 @@ class Decision(BaseModel):
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     effective_from: datetime | None = None
     review_date: datetime | None = None
+    tags: list[str] = Field(default_factory=list)
+
+
+class DecisionCandidate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str = Field(default_factory=lambda: str(uuid4()))
+    session_id: str
+    title: str
+    topic: str
+    candidate_text: str
+    rationale: str | None = None
+    status: Literal["proposed", "confirmed", "dismissed"] = "proposed"
+    owner: str | None = None
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     tags: list[str] = Field(default_factory=list)

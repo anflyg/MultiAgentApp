@@ -92,6 +92,19 @@ class Storage:
                 tags TEXT NOT NULL DEFAULT '[]',
                 FOREIGN KEY(session_id) REFERENCES sessions(id)
             );
+            CREATE TABLE IF NOT EXISTS decision_candidates (
+                id TEXT PRIMARY KEY,
+                session_id TEXT NOT NULL,
+                title TEXT NOT NULL,
+                topic TEXT NOT NULL,
+                candidate_text TEXT NOT NULL,
+                rationale TEXT,
+                status TEXT NOT NULL DEFAULT 'proposed',
+                owner TEXT,
+                created_at TEXT NOT NULL,
+                tags TEXT NOT NULL DEFAULT '[]',
+                FOREIGN KEY(session_id) REFERENCES sessions(id)
+            );
             """
         )
         self._ensure_column("sessions", "status", "TEXT NOT NULL DEFAULT 'active'")
@@ -109,6 +122,10 @@ class Storage:
         self._ensure_column("decisions", "effective_from", "TEXT")
         self._ensure_column("decisions", "review_date", "TEXT")
         self._ensure_column("decisions", "tags", "TEXT NOT NULL DEFAULT '[]'")
+        self._ensure_column("decision_candidates", "rationale", "TEXT")
+        self._ensure_column("decision_candidates", "status", "TEXT NOT NULL DEFAULT 'proposed'")
+        self._ensure_column("decision_candidates", "owner", "TEXT")
+        self._ensure_column("decision_candidates", "tags", "TEXT NOT NULL DEFAULT '[]'")
         self._conn.commit()
 
     def _ensure_column(self, table: str, column: str, definition: str) -> None:
@@ -371,6 +388,71 @@ class Storage:
             created_at=_from_iso(row["created_at"]),
             effective_from=_from_iso(row["effective_from"]) if row["effective_from"] else None,
             review_date=_from_iso(row["review_date"]) if row["review_date"] else None,
+            tags=json.loads(row["tags"]) if row["tags"] else [],
+        )
+
+    def add_decision_candidate(self, candidate: models.DecisionCandidate) -> None:
+        self._conn.execute(
+            """
+            INSERT OR REPLACE INTO decision_candidates (
+                id, session_id, title, topic, candidate_text, rationale, status, owner, created_at, tags
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                candidate.id,
+                candidate.session_id,
+                candidate.title,
+                candidate.topic,
+                candidate.candidate_text,
+                candidate.rationale,
+                candidate.status,
+                candidate.owner,
+                _to_iso(candidate.created_at),
+                json.dumps(candidate.tags),
+            ),
+        )
+        self._conn.commit()
+
+    def get_decision_candidate(self, candidate_id: str) -> Optional[models.DecisionCandidate]:
+        row = self._conn.execute(
+            "SELECT * FROM decision_candidates WHERE id = ?",
+            (candidate_id,),
+        ).fetchone()
+        if not row:
+            return None
+        return self._decision_candidate_from_row(row)
+
+    def update_decision_candidate_status(self, candidate_id: str, status: str) -> None:
+        self._conn.execute(
+            "UPDATE decision_candidates SET status = ? WHERE id = ?",
+            (status, candidate_id),
+        )
+        self._conn.commit()
+
+    def list_decision_candidates_for_session(self, session_id: str) -> List[models.DecisionCandidate]:
+        rows = self._conn.execute(
+            "SELECT * FROM decision_candidates WHERE session_id = ? ORDER BY created_at DESC",
+            (session_id,),
+        ).fetchall()
+        return [self._decision_candidate_from_row(row) for row in rows]
+
+    def list_open_decision_candidates(self) -> List[models.DecisionCandidate]:
+        rows = self._conn.execute(
+            "SELECT * FROM decision_candidates WHERE status = 'proposed' ORDER BY created_at DESC"
+        ).fetchall()
+        return [self._decision_candidate_from_row(row) for row in rows]
+
+    def _decision_candidate_from_row(self, row: sqlite3.Row) -> models.DecisionCandidate:
+        return models.DecisionCandidate(
+            id=row["id"],
+            session_id=row["session_id"],
+            title=row["title"],
+            topic=row["topic"],
+            candidate_text=row["candidate_text"],
+            rationale=row["rationale"],
+            status=row["status"],
+            owner=row["owner"],
+            created_at=_from_iso(row["created_at"]),
             tags=json.loads(row["tags"]) if row["tags"] else [],
         )
 

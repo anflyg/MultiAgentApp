@@ -147,6 +147,126 @@ def list_decisions(db_path: str, session_id: str | None = None) -> List[models.D
         storage.close()
 
 
+def create_decision_candidate(
+    db_path: str,
+    session_id: str,
+    title: str,
+    topic: str,
+    candidate_text: str,
+    rationale: str | None = None,
+    owner: str | None = None,
+    tags: List[str] | None = None,
+) -> models.DecisionCandidate:
+    storage = Storage(db_path=db_path)
+    try:
+        session = storage.get_session(session_id)
+        if session is None:
+            raise ValueError(f"Session '{session_id}' was not found")
+        candidate = models.DecisionCandidate(
+            session_id=session_id,
+            title=title,
+            topic=topic,
+            candidate_text=candidate_text,
+            rationale=rationale,
+            owner=owner,
+            tags=tags or [],
+        )
+        storage.add_decision_candidate(candidate)
+        storage.add_session_event(
+            models.SessionEvent(
+                session_id=session_id,
+                event_type="decision_candidate_created",
+                message=f"Decision candidate '{candidate.id}' created: {candidate.title}",
+            )
+        )
+        return candidate
+    finally:
+        storage.close()
+
+
+def list_decision_candidates(
+    db_path: str, session_id: str | None = None
+) -> List[models.DecisionCandidate]:
+    storage = Storage(db_path=db_path)
+    try:
+        if session_id:
+            session = storage.get_session(session_id)
+            if session is None:
+                raise ValueError(f"Session '{session_id}' was not found")
+            return storage.list_decision_candidates_for_session(session_id)
+        return storage.list_open_decision_candidates()
+    finally:
+        storage.close()
+
+
+def confirm_decision_candidate(db_path: str, candidate_id: str) -> tuple[models.DecisionCandidate, models.Decision]:
+    storage = Storage(db_path=db_path)
+    try:
+        candidate = storage.get_decision_candidate(candidate_id)
+        if candidate is None:
+            raise ValueError(f"Decision candidate '{candidate_id}' was not found")
+        if candidate.status != "proposed":
+            raise ValueError(
+                f"Decision candidate '{candidate_id}' is '{candidate.status}' and cannot be confirmed"
+            )
+    finally:
+        storage.close()
+
+    decision = create_decision(
+        db_path=db_path,
+        session_id=candidate.session_id,
+        title=candidate.title,
+        topic=candidate.topic,
+        decision_text=candidate.candidate_text,
+        rationale=candidate.rationale,
+        owner=candidate.owner,
+        tags=candidate.tags,
+    )
+
+    storage = Storage(db_path=db_path)
+    try:
+        storage.update_decision_candidate_status(candidate.id, "confirmed")
+        storage.add_session_event(
+            models.SessionEvent(
+                session_id=candidate.session_id,
+                event_type="decision_candidate_confirmed",
+                message=f"Decision candidate '{candidate.id}' confirmed as decision '{decision.id}'",
+            )
+        )
+        updated = storage.get_decision_candidate(candidate.id)
+        if updated is None:
+            raise ValueError(f"Decision candidate '{candidate_id}' was not found after update")
+        return updated, decision
+    finally:
+        storage.close()
+
+
+def dismiss_decision_candidate(db_path: str, candidate_id: str) -> models.DecisionCandidate:
+    storage = Storage(db_path=db_path)
+    try:
+        candidate = storage.get_decision_candidate(candidate_id)
+        if candidate is None:
+            raise ValueError(f"Decision candidate '{candidate_id}' was not found")
+        if candidate.status != "proposed":
+            raise ValueError(
+                f"Decision candidate '{candidate_id}' is '{candidate.status}' and cannot be dismissed"
+            )
+        storage.update_decision_candidate_status(candidate.id, "dismissed")
+        storage.add_session_event(
+            models.SessionEvent(
+                session_id=candidate.session_id,
+                event_type="decision_candidate_dismissed",
+                message=f"Decision candidate '{candidate.id}' dismissed",
+            )
+        )
+        updated = storage.get_decision_candidate(candidate.id)
+        if updated is None:
+            raise ValueError(f"Decision candidate '{candidate_id}' was not found after update")
+        return updated
+    finally:
+        storage.close()
+
+
 def run_example_flow(
     db_path: str = "multi_agent.db",
     session_name: str = "Demo Session",
@@ -231,6 +351,36 @@ def _build_parser() -> argparse.ArgumentParser:
 
     list_decisions_parser = subparsers.add_parser("list-decisions", help="List decisions.")
     list_decisions_parser.add_argument("--session-id", help="Optional session id.")
+
+    create_candidate_parser = subparsers.add_parser(
+        "create-decision-candidate", help="Create a decision candidate for a session."
+    )
+    create_candidate_parser.add_argument("--session-id", required=True, help="Session id.")
+    create_candidate_parser.add_argument("--title", required=True, help="Candidate title.")
+    create_candidate_parser.add_argument("--topic", required=True, help="Candidate topic.")
+    create_candidate_parser.add_argument("--text", dest="candidate_text", required=True, help="Candidate text.")
+    create_candidate_parser.add_argument("--rationale", help="Optional rationale.")
+    create_candidate_parser.add_argument("--owner", help="Optional owner.")
+    create_candidate_parser.add_argument(
+        "--tag",
+        dest="tags",
+        action="append",
+        default=[],
+        help="Candidate tag. Repeat --tag for multiple values.",
+    )
+
+    list_candidates_parser = subparsers.add_parser("list-decision-candidates", help="List decision candidates.")
+    list_candidates_parser.add_argument("--session-id", help="Optional session id.")
+
+    confirm_candidate_parser = subparsers.add_parser(
+        "confirm-decision-candidate", help="Confirm a proposed decision candidate."
+    )
+    confirm_candidate_parser.add_argument("--candidate-id", required=True, help="Candidate id.")
+
+    dismiss_candidate_parser = subparsers.add_parser(
+        "dismiss-decision-candidate", help="Dismiss a proposed decision candidate."
+    )
+    dismiss_candidate_parser.add_argument("--candidate-id", required=True, help="Candidate id.")
 
     subparsers.add_parser("tui", help="Launch Textual terminal UI.")
 
@@ -350,6 +500,65 @@ def main() -> None:
                 f"- {decision.id} [{decision.status}] session={decision.session_id} topic={decision.topic} title={decision.title}"
             )
             print(f"  {decision.decision_text}")
+        return
+
+    if args.command == "create-decision-candidate":
+        try:
+            candidate = create_decision_candidate(
+                db_path=args.db_path,
+                session_id=args.session_id,
+                title=args.title,
+                topic=args.topic,
+                candidate_text=args.candidate_text,
+                rationale=args.rationale,
+                owner=args.owner,
+                tags=args.tags,
+            )
+        except ValueError as exc:
+            print(f"Decision candidate creation failed: {exc}")
+            raise SystemExit(1) from exc
+        print(f"Created decision candidate: {candidate.id}")
+        print(f"Session: {candidate.session_id}")
+        print(f"Title: {candidate.title}")
+        print(f"Topic: {candidate.topic}")
+        print(f"Status: {candidate.status}")
+        print(f"Tags: {', '.join(candidate.tags) if candidate.tags else '-'}")
+        return
+
+    if args.command == "list-decision-candidates":
+        try:
+            candidates = list_decision_candidates(args.db_path, session_id=args.session_id)
+        except ValueError as exc:
+            print(f"Decision candidate listing failed: {exc}")
+            raise SystemExit(1) from exc
+        scope = args.session_id if args.session_id else "all proposed"
+        print(f"Decision candidates ({scope}): {len(candidates)}")
+        for candidate in candidates:
+            print(
+                f"- {candidate.id} [{candidate.status}] session={candidate.session_id} topic={candidate.topic} title={candidate.title}"
+            )
+            print(f"  {candidate.candidate_text}")
+        return
+
+    if args.command == "confirm-decision-candidate":
+        try:
+            candidate, decision = confirm_decision_candidate(args.db_path, args.candidate_id)
+        except ValueError as exc:
+            print(f"Decision candidate confirmation failed: {exc}")
+            raise SystemExit(1) from exc
+        print(f"Confirmed decision candidate: {candidate.id}")
+        print(f"Candidate status: {candidate.status}")
+        print(f"Created decision: {decision.id}")
+        return
+
+    if args.command == "dismiss-decision-candidate":
+        try:
+            candidate = dismiss_decision_candidate(args.db_path, args.candidate_id)
+        except ValueError as exc:
+            print(f"Decision candidate dismissal failed: {exc}")
+            raise SystemExit(1) from exc
+        print(f"Dismissed decision candidate: {candidate.id}")
+        print(f"Candidate status: {candidate.status}")
         return
 
     if args.command == "tui":
