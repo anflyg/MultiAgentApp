@@ -168,9 +168,14 @@ class Storage:
                 assessment_alignment TEXT NOT NULL,
                 assessment_reason TEXT NOT NULL,
                 challenge_points TEXT NOT NULL DEFAULT '[]',
+                question_interpretation TEXT,
+                relevant_context TEXT NOT NULL DEFAULT '{}',
+                per_role_analysis TEXT NOT NULL DEFAULT '{}',
+                tensions TEXT NOT NULL DEFAULT '[]',
                 combined_recommendation TEXT NOT NULL,
                 suggested_next_step TEXT NOT NULL,
                 likely_requires_new_decision TEXT NOT NULL,
+                decision_status_assessment TEXT NOT NULL DEFAULT '{}',
                 created_at TEXT NOT NULL,
                 FOREIGN KEY(question_id) REFERENCES panel_questions(id)
             );
@@ -211,6 +216,19 @@ class Storage:
         self._ensure_column("reasoning_items", "source_type", "TEXT NOT NULL DEFAULT 'system'")
         self._ensure_column("panel_questions", "question_text", "TEXT")
         self._ensure_column("panel_questions", "status", "TEXT NOT NULL DEFAULT 'open'")
+        self._ensure_column("panel_question_analyses", "question_interpretation", "TEXT")
+        self._ensure_column(
+            "panel_question_analyses", "relevant_context", "TEXT NOT NULL DEFAULT '{}'"
+        )
+        self._ensure_column(
+            "panel_question_analyses", "per_role_analysis", "TEXT NOT NULL DEFAULT '{}'"
+        )
+        self._ensure_column("panel_question_analyses", "tensions", "TEXT NOT NULL DEFAULT '[]'")
+        self._ensure_column(
+            "panel_question_analyses",
+            "decision_status_assessment",
+            "TEXT NOT NULL DEFAULT '{}'",
+        )
         self._conn.commit()
 
     def _ensure_column(self, table: str, column: str, definition: str) -> None:
@@ -793,11 +811,16 @@ class Storage:
                 assessment_alignment,
                 assessment_reason,
                 challenge_points,
+                question_interpretation,
+                relevant_context,
+                per_role_analysis,
+                tensions,
                 combined_recommendation,
                 suggested_next_step,
                 likely_requires_new_decision,
+                decision_status_assessment,
                 created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 analysis.id,
@@ -805,9 +828,14 @@ class Storage:
                 analysis.assessment_alignment,
                 analysis.assessment_reason,
                 json.dumps(analysis.challenge_points),
+                analysis.question_interpretation,
+                json.dumps(analysis.relevant_context),
+                json.dumps(analysis.per_role_analysis),
+                json.dumps(analysis.tensions),
                 analysis.combined_recommendation,
                 analysis.suggested_next_step,
                 analysis.likely_requires_new_decision,
+                json.dumps(analysis.decision_status_assessment),
                 _to_iso(analysis.created_at),
             ),
         )
@@ -826,9 +854,20 @@ class Storage:
             assessment_alignment=row["assessment_alignment"],
             assessment_reason=row["assessment_reason"],
             challenge_points=json.loads(row["challenge_points"]) if row["challenge_points"] else [],
+            question_interpretation=row["question_interpretation"] if "question_interpretation" in row.keys() else None,
+            relevant_context=json.loads(row["relevant_context"])
+            if "relevant_context" in row.keys() and row["relevant_context"]
+            else {},
+            per_role_analysis=json.loads(row["per_role_analysis"])
+            if "per_role_analysis" in row.keys() and row["per_role_analysis"]
+            else {},
+            tensions=json.loads(row["tensions"]) if "tensions" in row.keys() and row["tensions"] else [],
             combined_recommendation=row["combined_recommendation"],
             suggested_next_step=row["suggested_next_step"],
             likely_requires_new_decision=row["likely_requires_new_decision"],
+            decision_status_assessment=json.loads(row["decision_status_assessment"])
+            if "decision_status_assessment" in row.keys() and row["decision_status_assessment"]
+            else {},
             created_at=_from_iso(row["created_at"]),
         )
 
@@ -868,6 +907,20 @@ class Storage:
             "analysis": self.get_panel_question_analysis(question_id),
             "context_decision_ids": self.list_panel_question_context_decision_ids(question_id),
             "responses": self.list_panel_responses(question_id),
+            "sections": self.get_panel_question_sections(question_id),
+        }
+
+    def get_panel_question_sections(self, question_id: str) -> dict:
+        analysis = self.get_panel_question_analysis(question_id)
+        if analysis is None:
+            return {}
+        return {
+            "question_interpretation": analysis.question_interpretation,
+            "relevant_context": analysis.relevant_context,
+            "per_role_analysis": analysis.per_role_analysis,
+            "tensions": analysis.tensions,
+            "combined_recommendation": analysis.combined_recommendation,
+            "decision_status_assessment": analysis.decision_status_assessment,
         }
 
     def add_decision_candidate(self, candidate: models.DecisionCandidate) -> None:

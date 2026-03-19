@@ -9,6 +9,7 @@ from .agents import BaseAgent, PlannerAgent, ReviewerAgent, WriterAgent
 from .orchestrator import OrchestrationError, Orchestrator
 from .panel import (
     assess_question_against_active_decisions,
+    build_panel_sections,
     build_context_packet,
     combined_recommendation,
     governance_response,
@@ -609,7 +610,7 @@ def ask_decision_panel(
             normalized_question, context["active_decisions"]
         )
 
-        role_outputs = {
+        per_role_analysis = {
             "strateg": strateg_response(normalized_question, context, assessment),
             "analyst": analyst_response(normalized_question, context, assessment),
             "operator": operator_response(normalized_question, context, assessment),
@@ -619,22 +620,22 @@ def ask_decision_panel(
             models.PanelResponse(
                 question_id=panel_question.id,
                 agent_name="strateg",
-                response_text=role_outputs["strateg"],
+                response_text=per_role_analysis["strateg"],
             ),
             models.PanelResponse(
                 question_id=panel_question.id,
                 agent_name="analyst",
-                response_text=role_outputs["analyst"],
+                response_text=per_role_analysis["analyst"],
             ),
             models.PanelResponse(
                 question_id=panel_question.id,
                 agent_name="operator",
-                response_text=role_outputs["operator"],
+                response_text=per_role_analysis["operator"],
             ),
             models.PanelResponse(
                 question_id=panel_question.id,
                 agent_name="governance",
-                response_text=role_outputs["governance"],
+                response_text=per_role_analysis["governance"],
             ),
         ]
         storage.add_panel_responses(responses)
@@ -646,6 +647,14 @@ def ask_decision_panel(
         combined = combined_recommendation(normalized_question, context, assessment)
         likely_new_decision = likely_requires_new_decision(assessment)
         next_step = suggested_next_step(normalized_question, context, assessment)
+        sections = build_panel_sections(
+            question=normalized_question,
+            context=context,
+            assessment=assessment,
+            per_role_analysis=per_role_analysis,
+            combined=combined,
+            likely_new_decision=likely_new_decision,
+        )
         storage.add_panel_question_analysis(
             models.ExecutiveQuestionAnalysis(
                 question_id=panel_question.id,
@@ -655,6 +664,11 @@ def ask_decision_panel(
                 combined_recommendation=combined,
                 suggested_next_step=next_step,
                 likely_requires_new_decision=likely_new_decision,
+                question_interpretation=sections["question_interpretation"],
+                relevant_context=sections["relevant_context"],
+                per_role_analysis=sections["per_role_analysis"],
+                tensions=sections["tensions"],
+                decision_status_assessment=sections["decision_status_assessment"],
             )
         )
         return panel_question, context, assessment, responses, combined, likely_new_decision, next_step

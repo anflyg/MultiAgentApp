@@ -97,12 +97,28 @@ def test_ask_decision_panel_with_relevant_decisions_stores_question_and_response
         assert stored_analysis.combined_recommendation == combined
         assert stored_analysis.suggested_next_step == next_step
         assert stored_analysis.likely_requires_new_decision == likely_new_decision
+        assert stored_analysis.question_interpretation
+        assert stored_analysis.relevant_context
+        assert stored_analysis.per_role_analysis
+        assert "strateg" in stored_analysis.per_role_analysis
+        assert "analyst" in stored_analysis.per_role_analysis
+        assert "operator" in stored_analysis.per_role_analysis
+        assert "governance" in stored_analysis.per_role_analysis
+        assert isinstance(stored_analysis.tensions, list)
+        assert stored_analysis.decision_status_assessment
+        assert stored_analysis.decision_status_assessment["alignment"] == assessment.alignment
         assert context_decision_ids
         assert all(decision_id in {decision.id for decision in context["active_decisions"]} for decision_id in context_decision_ids)
         assert stored_case is not None
         assert stored_case["question"].id == question.id
         assert stored_case["analysis"] is not None
         assert len(stored_case["responses"]) == 4
+        assert stored_case["sections"]["question_interpretation"]
+        assert stored_case["sections"]["relevant_context"]
+        assert stored_case["sections"]["per_role_analysis"]
+        assert "tensions" in stored_case["sections"]
+        assert stored_case["sections"]["combined_recommendation"] == combined
+        assert stored_case["sections"]["decision_status_assessment"]["alignment"] == assessment.alignment
     finally:
         storage.close()
 

@@ -210,4 +210,9 @@ class ExecutiveQuestionAnalysis(BaseModel):
     combined_recommendation: str
     suggested_next_step: str
     likely_requires_new_decision: Literal["yes", "no", "probably"]
+    question_interpretation: str | None = None
+    relevant_context: dict[str, object] = Field(default_factory=dict)
+    per_role_analysis: dict[str, str] = Field(default_factory=dict)
+    tensions: list[str] = Field(default_factory=list)
+    decision_status_assessment: dict[str, object] = Field(default_factory=dict)
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))

@@ -15,6 +15,15 @@ class PanelContext(TypedDict):
     decision_links: list[models.DecisionLink]
 
 
+class PanelSections(TypedDict):
+    question_interpretation: str
+    relevant_context: dict[str, object]
+    per_role_analysis: dict[str, str]
+    tensions: list[str]
+    combined_recommendation: str
+    decision_status_assessment: dict[str, object]
+
+
 _DEVIATION_SIGNALS = [
     "ändå",
     "trots",
@@ -333,3 +342,49 @@ def suggested_next_step(
     if context["open_candidates"]:
         return "Confirm or dismiss open decision candidates for this topic."
     return "Assign implementation owner for the active decision set."
+
+
+def question_interpretation(
+    question: str, context: PanelContext, assessment: models.DecisionAlignmentAssessment
+) -> str:
+    if not context["active_decisions"]:
+        return "Question is interpreted as requiring a new baseline decision because no active governing decision exists."
+    if assessment.alignment == "aligned":
+        return "Question is interpreted as execution under existing active decisions."
+    if assessment.alignment == "clarification_needed":
+        return "Question is interpreted as clarification/execution detail within current direction."
+    if assessment.alignment == "potential_deviation":
+        return "Question is interpreted as a possible deviation that needs explicit challenge."
+    return "Question is interpreted as likely requiring an explicit exception or new decision."
+
+
+def relevant_context_summary(context: PanelContext) -> dict[str, object]:
+    return {
+        "active_decision_ids": [decision.id for decision in context["active_decisions"]],
+        "historical_decision_ids": [decision.id for decision in context["historical_decisions"]],
+        "open_candidate_ids": [candidate.id for candidate in context["open_candidates"]],
+        "open_suggestion_ids": [suggestion.id for suggestion in context["open_suggestions"]],
+        "decision_link_ids": [link.id for link in context["decision_links"]],
+    }
+
+
+def build_panel_sections(
+    question: str,
+    context: PanelContext,
+    assessment: models.DecisionAlignmentAssessment,
+    per_role_analysis: dict[str, str],
+    combined: str,
+    likely_new_decision: str,
+) -> PanelSections:
+    return {
+        "question_interpretation": question_interpretation(question, context, assessment),
+        "relevant_context": relevant_context_summary(context),
+        "per_role_analysis": per_role_analysis,
+        "tensions": assessment.challenge_points,
+        "combined_recommendation": combined,
+        "decision_status_assessment": {
+            "alignment": assessment.alignment,
+            "reason": assessment.reason,
+            "likely_requires_new_decision": likely_new_decision,
+        },
+    }
