@@ -170,6 +170,15 @@ def test_ask_decision_panel_with_relevant_decisions_stores_question_and_response
         assert stored_case["sections"]["combined_recommendation"] == combined
         assert stored_case["sections"]["decision_status_assessment"]["alignment"] == assessment.alignment
         assert stored_case["sections"]["decision_status_assessment"]["formal_next_step"]
+
+        reasoning_items = storage.list_reasoning_items_for_question(question.id)
+        assert 1 <= len(reasoning_items) <= 4
+        assert all(item.question_id == question.id for item in reasoning_items)
+        assert all(item.source_type == "panel" for item in reasoning_items)
+        assert all(
+            item.kind in {"open_question", "objection", "risk", "rationale", "assumption"}
+            for item in reasoning_items
+        )
     finally:
         storage.close()
 
@@ -206,6 +215,32 @@ def test_panel_outcome_distinguishes_decision_modes():
     assert outcome_aligned.decision_mode == "execution_under_active_decision"
     assert outcome_aligned.likely_requires_new_decision == "no"
     assert outcome_aligned.can_execute_now is True
+
+
+def test_ask_decision_panel_deviation_creates_objection_or_risk_reasoning(tmp_path):
+    db_path = tmp_path / "panel_reasoning_items_deviation.db"
+    session = create_session(str(db_path), "Panel Reasoning")
+    create_decision(
+        str(db_path),
+        session.id,
+        "Rollout sequence",
+        "Expansion",
+        "Open Denmark only after Norway is stable.",
+    )
+    question, _, _, _, _, _, _ = ask_decision_panel(
+        db_path=str(db_path),
+        question="Ska vi öppna Danmark ändå trots att Norge är försenat?",
+        topic="Expansion",
+    )
+    storage = Storage(db_path=str(db_path))
+    try:
+        items = storage.list_reasoning_items_for_question(question.id)
+        assert 1 <= len(items) <= 4
+        kinds = {item.kind for item in items}
+        assert "objection" in kinds or "risk" in kinds
+        assert all(item.question_id == question.id for item in items)
+    finally:
+        storage.close()
 
 
 def test_ask_decision_panel_with_no_decisions_still_returns_structure(tmp_path):

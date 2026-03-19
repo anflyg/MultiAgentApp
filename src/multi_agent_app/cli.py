@@ -59,6 +59,89 @@ def _default_agents() -> Dict[str, BaseAgent]:
     }
 
 
+def _reasoning_signature(item: models.ReasoningItem) -> tuple[str | None, str | None, str, str, str]:
+    return (
+        item.decision_id,
+        item.question_id,
+        item.kind,
+        " ".join(item.content.strip().split()),
+        item.source_type,
+    )
+
+
+def _build_reasoning_items_from_panel(
+    panel_question: models.ExecutiveQuestion,
+    context: dict,
+    assessment: models.DecisionAlignmentAssessment,
+    role_analysis_outputs: dict[str, str],
+    max_items: int = 4,
+) -> list[models.ReasoningItem]:
+    items: list[models.ReasoningItem] = []
+    primary_decision_id = context["active_decisions"][0].id if context["active_decisions"] else None
+
+    challenge_kind = (
+        "objection" if assessment.alignment in {"potential_deviation", "likely_new_decision_required"} else "open_question"
+    )
+    for point in assessment.challenge_points[:2]:
+        items.append(
+            models.ReasoningItem(
+                question_id=panel_question.id,
+                decision_id=primary_decision_id if challenge_kind == "objection" else None,
+                kind=challenge_kind,
+                content=point,
+                source_type="panel",
+            )
+        )
+
+    analyst_text = role_analysis_outputs.get("analyst", "")
+    if analyst_text and "risk" in analyst_text.lower() and "low visible tension" not in analyst_text.lower():
+        items.append(
+            models.ReasoningItem(
+                question_id=panel_question.id,
+                decision_id=primary_decision_id,
+                kind="risk",
+                content=analyst_text,
+                source_type="panel",
+            )
+        )
+
+    strateg_text = role_analysis_outputs.get("strateg", "")
+    if strateg_text and assessment.alignment in {"aligned", "potential_deviation", "likely_new_decision_required"}:
+        items.append(
+            models.ReasoningItem(
+                question_id=panel_question.id,
+                decision_id=primary_decision_id,
+                kind="rationale",
+                content=strateg_text,
+                source_type="panel",
+            )
+        )
+
+    merged_text = f"{analyst_text} {strateg_text}".lower()
+    if "assumption" in merged_text:
+        items.append(
+            models.ReasoningItem(
+                question_id=panel_question.id,
+                decision_id=primary_decision_id,
+                kind="assumption",
+                content="Panel indicates assumptions should be explicitly verified before execution.",
+                source_type="panel",
+            )
+        )
+
+    deduped: list[models.ReasoningItem] = []
+    seen: set[tuple[str | None, str | None, str, str, str]] = set()
+    for item in items:
+        signature = _reasoning_signature(item)
+        if signature in seen:
+            continue
+        seen.add(signature)
+        deduped.append(item)
+        if len(deduped) >= max_items:
+            break
+    return deduped
+
+
 def create_session(db_path: str, session_name: str) -> models.Session:
     storage = Storage(db_path=db_path)
     orchestrator = Orchestrator(storage, agents=_default_agents())
@@ -660,6 +743,21 @@ def ask_decision_panel(
                 decision_status_assessment=sections["decision_status_assessment"],
             )
         )
+        existing_signatures = {
+            _reasoning_signature(item)
+            for item in storage.list_reasoning_items_for_question(panel_question.id)
+        }
+        for item in _build_reasoning_items_from_panel(
+            panel_question=panel_question,
+            context=context,
+            assessment=assessment,
+            role_analysis_outputs=role_analysis_outputs,
+        ):
+            signature = _reasoning_signature(item)
+            if signature in existing_signatures:
+                continue
+            storage.add_reasoning_item(item)
+            existing_signatures.add(signature)
         return panel_question, context, assessment, responses, combined, likely_new_decision, next_step
     finally:
         storage.close()
