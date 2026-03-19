@@ -5,6 +5,7 @@ from multi_agent_app import models
 from multi_agent_app.cli import ask_decision_panel, create_decision, create_session, main
 from multi_agent_app.panel import (
     assess_question_against_active_decisions,
+    build_panel_outcome,
     build_context_packet,
     default_advisor_roles,
     per_role_analysis,
@@ -148,6 +149,14 @@ def test_ask_decision_panel_with_relevant_decisions_stores_question_and_response
         assert isinstance(stored_analysis.tensions, list)
         assert stored_analysis.decision_status_assessment
         assert stored_analysis.decision_status_assessment["alignment"] == assessment.alignment
+        assert stored_analysis.decision_status_assessment["decision_mode"] in {
+            "execution_under_active_decision",
+            "clarification_of_active_decision",
+            "potential_deviation",
+            "likely_new_decision_required",
+        }
+        assert stored_analysis.decision_status_assessment["formal_next_step"]
+        assert stored_analysis.decision_status_assessment["automatic_formalization"] is False
         assert context_decision_ids
         assert all(decision_id in {decision.id for decision in context["active_decisions"]} for decision_id in context_decision_ids)
         assert stored_case is not None
@@ -160,8 +169,43 @@ def test_ask_decision_panel_with_relevant_decisions_stores_question_and_response
         assert "tensions" in stored_case["sections"]
         assert stored_case["sections"]["combined_recommendation"] == combined
         assert stored_case["sections"]["decision_status_assessment"]["alignment"] == assessment.alignment
+        assert stored_case["sections"]["decision_status_assessment"]["formal_next_step"]
     finally:
         storage.close()
+
+
+def test_panel_outcome_distinguishes_decision_modes():
+    empty_context = {
+        "active_decisions": [],
+        "historical_decisions": [],
+        "open_candidates": [],
+        "open_suggestions": [],
+        "decision_links": [],
+    }
+    clarification_no_active = models.DecisionAlignmentAssessment(
+        alignment="clarification_needed",
+        reason="No active decision baseline.",
+    )
+    outcome_no_active = build_panel_outcome(empty_context, clarification_no_active)
+    assert outcome_no_active.decision_mode == "likely_new_decision_required"
+    assert outcome_no_active.likely_requires_new_decision == "yes"
+    assert outcome_no_active.can_execute_now is False
+
+    active_context = {
+        "active_decisions": [models.Decision(session_id="S1", title="D1", topic="Ops", decision_text="Do X")],
+        "historical_decisions": [],
+        "open_candidates": [],
+        "open_suggestions": [],
+        "decision_links": [],
+    }
+    aligned = models.DecisionAlignmentAssessment(
+        alignment="aligned",
+        reason="Aligned with active direction.",
+    )
+    outcome_aligned = build_panel_outcome(active_context, aligned)
+    assert outcome_aligned.decision_mode == "execution_under_active_decision"
+    assert outcome_aligned.likely_requires_new_decision == "no"
+    assert outcome_aligned.can_execute_now is True
 
 
 def test_ask_decision_panel_with_no_decisions_still_returns_structure(tmp_path):

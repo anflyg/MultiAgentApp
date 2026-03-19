@@ -10,11 +10,11 @@ from .orchestrator import OrchestrationError, Orchestrator
 from .panel import (
     active_advisor_roles,
     assess_question_against_active_decisions,
+    build_panel_outcome,
     build_panel_sections,
     build_context_packet,
     combined_recommendation,
     default_advisor_roles,
-    likely_requires_new_decision,
     per_role_analysis,
     suggested_next_step,
 )
@@ -632,7 +632,8 @@ def ask_decision_panel(
         )
 
         combined = combined_recommendation(normalized_question, context, assessment)
-        likely_new_decision = likely_requires_new_decision(assessment)
+        panel_outcome = build_panel_outcome(context, assessment)
+        likely_new_decision = panel_outcome.likely_requires_new_decision
         next_step = suggested_next_step(normalized_question, context, assessment)
         sections = build_panel_sections(
                 question=normalized_question,
@@ -640,7 +641,8 @@ def ask_decision_panel(
                 assessment=assessment,
                 per_role_analysis=role_analysis_outputs,
                 combined=combined,
-                likely_new_decision=likely_new_decision,
+                panel_outcome=panel_outcome,
+                suggested_formal_step=next_step,
             )
         storage.add_panel_question_analysis(
             models.ExecutiveQuestionAnalysis(
@@ -1226,6 +1228,9 @@ def main() -> None:
             print("- none")
 
         print(f"Decision alignment assessment: {assessment.alignment} ({assessment.reason})")
+        outcome = build_panel_outcome(context, assessment)
+        print(f"Decision status mode: {outcome.decision_mode}")
+        print(f"Formal next step: {outcome.formal_next_step}")
         print("Challenge points:")
         if assessment.challenge_points:
             for point in assessment.challenge_points:
@@ -1264,10 +1269,13 @@ def main() -> None:
             + (", ".join(context_decision_ids) if context_decision_ids else "none")
         )
         if analysis is not None:
+            assessment_payload = analysis.decision_status_assessment or {}
             print(
                 f"Decision alignment assessment: "
                 f"{analysis.assessment_alignment} ({analysis.assessment_reason})"
             )
+            print(f"Decision status mode: {assessment_payload.get('decision_mode', '-')}")
+            print(f"Formal next step: {assessment_payload.get('formal_next_step', analysis.suggested_next_step)}")
             print(
                 "Challenge points: "
                 + (" | ".join(analysis.challenge_points) if analysis.challenge_points else "none")

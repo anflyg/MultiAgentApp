@@ -366,6 +366,46 @@ def likely_requires_new_decision(assessment: models.DecisionAlignmentAssessment)
     return "probably"
 
 
+def decision_mode(
+    context: PanelContext, assessment: models.DecisionAlignmentAssessment
+) -> str:
+    if assessment.alignment == "aligned":
+        return "execution_under_active_decision"
+    if assessment.alignment == "clarification_needed":
+        if context["active_decisions"]:
+            return "clarification_of_active_decision"
+        return "likely_new_decision_required"
+    if assessment.alignment == "potential_deviation":
+        return "potential_deviation"
+    return "likely_new_decision_required"
+
+
+def formal_next_step_for_mode(mode: str) -> str:
+    if mode == "execution_under_active_decision":
+        return "Proceed under active decisions and track implementation ownership."
+    if mode == "clarification_of_active_decision":
+        return "Document clarification within current active decision scope before execution."
+    if mode == "potential_deviation":
+        return "Open explicit deviation/exception handling and review before execution changes."
+    return "Open a new decision candidate and run formal confirmation before execution."
+
+
+def build_panel_outcome(
+    context: PanelContext, assessment: models.DecisionAlignmentAssessment
+) -> models.PanelOutcome:
+    mode = decision_mode(context, assessment)
+    likely = likely_requires_new_decision(assessment)
+    if mode == "likely_new_decision_required":
+        likely = "yes"
+    can_execute_now = mode in {"execution_under_active_decision", "clarification_of_active_decision"}
+    return models.PanelOutcome(
+        decision_mode=mode,
+        likely_requires_new_decision=likely,
+        can_execute_now=can_execute_now,
+        formal_next_step=formal_next_step_for_mode(mode),
+    )
+
+
 def combined_recommendation(
     question: str, context: PanelContext, assessment: models.DecisionAlignmentAssessment
 ) -> str:
@@ -432,7 +472,8 @@ def build_panel_sections(
     assessment: models.DecisionAlignmentAssessment,
     per_role_analysis: dict[str, str],
     combined: str,
-    likely_new_decision: str,
+    panel_outcome: models.PanelOutcome,
+    suggested_formal_step: str,
 ) -> PanelSections:
     return {
         "question_interpretation": question_interpretation(question, context, assessment),
@@ -441,8 +482,13 @@ def build_panel_sections(
         "tensions": assessment.challenge_points,
         "combined_recommendation": combined,
         "decision_status_assessment": {
+            "decision_mode": panel_outcome.decision_mode,
             "alignment": assessment.alignment,
             "reason": assessment.reason,
-            "likely_requires_new_decision": likely_new_decision,
+            "can_execute_now": panel_outcome.can_execute_now,
+            "likely_requires_new_decision": panel_outcome.likely_requires_new_decision,
+            "formal_next_step": panel_outcome.formal_next_step,
+            "suggested_next_step": suggested_formal_step,
+            "automatic_formalization": False,
         },
     }

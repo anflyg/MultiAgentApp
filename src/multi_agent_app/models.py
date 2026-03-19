@@ -204,6 +204,20 @@ class DecisionAlignmentAssessment(BaseModel):
     challenge_points: list[str] = Field(default_factory=list)
 
 
+class PanelOutcome(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    decision_mode: Literal[
+        "execution_under_active_decision",
+        "clarification_of_active_decision",
+        "potential_deviation",
+        "likely_new_decision_required",
+    ]
+    likely_requires_new_decision: Literal["yes", "no", "probably"]
+    can_execute_now: bool
+    formal_next_step: str
+
+
 class ExecutiveQuestionAnalysis(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
