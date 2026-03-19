@@ -1,3 +1,7 @@
+import sqlite3
+from datetime import datetime, timezone
+from uuid import uuid4
+
 from multi_agent_app import models
 from multi_agent_app.storage import Storage
 
@@ -153,3 +157,58 @@ def test_storage_recent_and_open_decision_helpers():
     assert open_suggestions[0].id == suggestion.id
 
     storage.close()
+
+
+def test_storage_migrates_decision_context_columns_for_existing_db(tmp_path):
+    db_path = tmp_path / "legacy_decisions.db"
+    conn = sqlite3.connect(db_path)
+    try:
+        conn.executescript(
+            """
+            CREATE TABLE sessions (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'active',
+                created_at TEXT NOT NULL
+            );
+            CREATE TABLE decisions (
+                id TEXT PRIMARY KEY,
+                session_id TEXT NOT NULL,
+                title TEXT NOT NULL,
+                topic TEXT NOT NULL,
+                decision_text TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            );
+            """
+        )
+        session_id = str(uuid4())
+        decision_id = str(uuid4())
+        created_at = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+        conn.execute(
+            "INSERT INTO sessions (id, name, status, created_at) VALUES (?, ?, ?, ?)",
+            (session_id, "Legacy", "active", created_at),
+        )
+        conn.execute(
+            """
+            INSERT INTO decisions (id, session_id, title, topic, decision_text, created_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (decision_id, session_id, "Legacy Decision", "Ops", "Keep rollout", created_at),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    storage = Storage(db_path=str(db_path))
+    try:
+        fetched = storage.get_decision(decision_id)
+        assert fetched is not None
+        assert fetched.title == "Legacy Decision"
+        assert fetched.background is None
+        assert fetched.assumptions is None
+        assert fetched.risks is None
+        assert fetched.alternatives_considered is None
+        assert fetched.consequences is None
+        assert fetched.follow_up_notes is None
+    finally:
+        storage.close()

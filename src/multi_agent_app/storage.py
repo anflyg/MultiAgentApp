@@ -84,6 +84,12 @@ class Storage:
                 topic TEXT NOT NULL,
                 decision_text TEXT NOT NULL,
                 rationale TEXT,
+                background TEXT,
+                assumptions TEXT,
+                risks TEXT,
+                alternatives_considered TEXT,
+                consequences TEXT,
+                follow_up_notes TEXT,
                 status TEXT NOT NULL DEFAULT 'active',
                 owner TEXT,
                 created_at TEXT NOT NULL,
@@ -176,6 +182,12 @@ class Storage:
         self._ensure_column("memory_items", "source_agent", "TEXT")
         self._ensure_column("memory_items", "task_id", "TEXT")
         self._ensure_column("decisions", "rationale", "TEXT")
+        self._ensure_column("decisions", "background", "TEXT")
+        self._ensure_column("decisions", "assumptions", "TEXT")
+        self._ensure_column("decisions", "risks", "TEXT")
+        self._ensure_column("decisions", "alternatives_considered", "TEXT")
+        self._ensure_column("decisions", "consequences", "TEXT")
+        self._ensure_column("decisions", "follow_up_notes", "TEXT")
         self._ensure_column("decisions", "status", "TEXT NOT NULL DEFAULT 'active'")
         self._ensure_column("decisions", "owner", "TEXT")
         self._ensure_column("decisions", "effective_from", "TEXT")
@@ -393,9 +405,10 @@ class Storage:
         self._conn.execute(
             """
             INSERT OR REPLACE INTO decisions (
-                id, session_id, title, topic, decision_text, rationale, status, owner,
-                created_at, effective_from, review_date, tags
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                id, session_id, title, topic, decision_text, rationale,
+                background, assumptions, risks, alternatives_considered, consequences, follow_up_notes,
+                status, owner, created_at, effective_from, review_date, tags
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 decision.id,
@@ -404,6 +417,12 @@ class Storage:
                 decision.topic,
                 decision.decision_text,
                 decision.rationale,
+                decision.background,
+                decision.assumptions,
+                decision.risks,
+                decision.alternatives_considered,
+                decision.consequences,
+                decision.follow_up_notes,
                 decision.status,
                 decision.owner,
                 _to_iso(decision.created_at),
@@ -444,6 +463,12 @@ class Storage:
             topic=row["topic"],
             decision_text=row["decision_text"],
             rationale=row["rationale"],
+            background=row["background"] if "background" in row.keys() else None,
+            assumptions=row["assumptions"] if "assumptions" in row.keys() else None,
+            risks=row["risks"] if "risks" in row.keys() else None,
+            alternatives_considered=row["alternatives_considered"] if "alternatives_considered" in row.keys() else None,
+            consequences=row["consequences"] if "consequences" in row.keys() else None,
+            follow_up_notes=row["follow_up_notes"] if "follow_up_notes" in row.keys() else None,
             status=row["status"],
             owner=row["owner"],
             created_at=_from_iso(row["created_at"]),

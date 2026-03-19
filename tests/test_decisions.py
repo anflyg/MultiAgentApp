@@ -13,6 +13,12 @@ def test_store_and_get_decision():
         topic="Persistence",
         decision_text="Use SQLite for local persistence.",
         rationale="Simple and portable.",
+        background="Need fast local setup for pilot teams.",
+        assumptions="No strict multi-writer requirement in phase 1.",
+        risks="Potential locking under high write load.",
+        alternatives_considered="PostgreSQL in managed cloud.",
+        consequences="Simpler deploy path, possible future migration cost.",
+        follow_up_notes="Re-evaluate after traffic exceeds expected baseline.",
         owner="team",
         tags=["db", "local"],
     )
@@ -21,6 +27,12 @@ def test_store_and_get_decision():
     fetched = storage.get_decision(decision.id)
     assert fetched is not None
     assert fetched.title == "Use SQLite"
+    assert fetched.background == "Need fast local setup for pilot teams."
+    assert fetched.assumptions == "No strict multi-writer requirement in phase 1."
+    assert fetched.risks == "Potential locking under high write load."
+    assert fetched.alternatives_considered == "PostgreSQL in managed cloud."
+    assert fetched.consequences == "Simpler deploy path, possible future migration cost."
+    assert fetched.follow_up_notes == "Re-evaluate after traffic exceeds expected baseline."
     assert fetched.tags == ["db", "local"]
     storage.close()
 

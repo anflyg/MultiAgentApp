@@ -163,7 +163,19 @@ def test_show_decision_includes_relation_info(tmp_path, capsys, monkeypatch):
     db_path = tmp_path / "show_decision_link_cli.db"
     session = create_session(str(db_path), "Show Decision Session")
     old_decision = create_decision(str(db_path), session.id, "Old", "Topic", "Old decision")
-    new_decision = create_decision(str(db_path), session.id, "New", "Topic", "New decision")
+    new_decision = create_decision(
+        str(db_path),
+        session.id,
+        "New",
+        "Topic",
+        "New decision",
+        background="Background details",
+        assumptions="Assumptions details",
+        risks="Risk details",
+        alternatives_considered="Alternative details",
+        consequences="Consequence details",
+        follow_up_notes="Follow-up details",
+    )
     link_decisions(str(db_path), new_decision.id, old_decision.id, "clarifies")
 
     monkeypatch.setattr(
@@ -180,6 +192,12 @@ def test_show_decision_includes_relation_info(tmp_path, capsys, monkeypatch):
     )
     main()
     output = capsys.readouterr().out
+    assert "Background: Background details" in output
+    assert "Assumptions: Assumptions details" in output
+    assert "Risks: Risk details" in output
+    assert "Alternatives considered: Alternative details" in output
+    assert "Consequences: Consequence details" in output
+    assert "Follow-up notes: Follow-up details" in output
     assert "Outgoing links: 1" in output
     assert "Incoming links: 0" in output
     assert "clarifies" in output

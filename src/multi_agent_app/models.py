@@ -88,6 +88,12 @@ class Decision(BaseModel):
     topic: str
     decision_text: str
     rationale: str | None = None
+    background: str | None = None
+    assumptions: str | None = None
+    risks: str | None = None
+    alternatives_considered: str | None = None
+    consequences: str | None = None
+    follow_up_notes: str | None = None
     status: Literal["active", "superseded", "revoked"] = "active"
     owner: str | None = None
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))

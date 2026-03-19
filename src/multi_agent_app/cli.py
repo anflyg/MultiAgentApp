@@ -146,6 +146,12 @@ def create_decision(
     topic: str,
     decision_text: str,
     rationale: str | None = None,
+    background: str | None = None,
+    assumptions: str | None = None,
+    risks: str | None = None,
+    alternatives_considered: str | None = None,
+    consequences: str | None = None,
+    follow_up_notes: str | None = None,
     owner: str | None = None,
     tags: List[str] | None = None,
 ) -> models.Decision:
@@ -160,6 +166,12 @@ def create_decision(
             topic=topic,
             decision_text=decision_text,
             rationale=rationale,
+            background=background,
+            assumptions=assumptions,
+            risks=risks,
+            alternatives_considered=alternatives_considered,
+            consequences=consequences,
+            follow_up_notes=follow_up_notes,
             owner=owner,
             tags=tags or [],
         )
@@ -752,6 +764,16 @@ def _build_parser() -> argparse.ArgumentParser:
     create_decision_parser.add_argument("--topic", required=True, help="Decision topic.")
     create_decision_parser.add_argument("--text", dest="decision_text", required=True, help="Decision text.")
     create_decision_parser.add_argument("--rationale", help="Optional rationale.")
+    create_decision_parser.add_argument("--background", help="Optional background context.")
+    create_decision_parser.add_argument("--assumptions", help="Optional assumptions.")
+    create_decision_parser.add_argument("--risks", help="Optional risks.")
+    create_decision_parser.add_argument(
+        "--alternatives-considered",
+        dest="alternatives_considered",
+        help="Optional alternatives considered.",
+    )
+    create_decision_parser.add_argument("--consequences", help="Optional consequences.")
+    create_decision_parser.add_argument("--follow-up-notes", dest="follow_up_notes", help="Optional follow-up notes.")
     create_decision_parser.add_argument("--owner", help="Optional owner.")
     create_decision_parser.add_argument(
         "--tag",
@@ -936,6 +958,12 @@ def main() -> None:
                 topic=args.topic,
                 decision_text=args.decision_text,
                 rationale=args.rationale,
+                background=args.background,
+                assumptions=args.assumptions,
+                risks=args.risks,
+                alternatives_considered=args.alternatives_considered,
+                consequences=args.consequences,
+                follow_up_notes=args.follow_up_notes,
                 owner=args.owner,
                 tags=args.tags,
             )
@@ -1067,6 +1095,12 @@ def main() -> None:
         print(f"Tags: {', '.join(decision.tags) if decision.tags else '-'}")
         print(f"Text: {decision.decision_text}")
         print(f"Rationale: {decision.rationale or '-'}")
+        print(f"Background: {decision.background or '-'}")
+        print(f"Assumptions: {decision.assumptions or '-'}")
+        print(f"Risks: {decision.risks or '-'}")
+        print(f"Alternatives considered: {decision.alternatives_considered or '-'}")
+        print(f"Consequences: {decision.consequences or '-'}")
+        print(f"Follow-up notes: {decision.follow_up_notes or '-'}")
         print(f"Outgoing links: {len(outgoing_links)}")
         for link in outgoing_links:
             print(f"- {link.id} [{link.relation_type}] {link.from_decision_id} -> {link.to_decision_id}")
