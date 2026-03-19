@@ -17,13 +17,39 @@ class MultiAgentTUI(App[None]):
     Screen { layout: vertical; }
     #root { height: 1fr; }
     #left, #middle, #right { width: 1fr; padding: 1; }
-    #summary { padding: 1; border: tall $accent; }
-    #recent-questions, #question-analysis, #question-recommendation, #question-status,
+    #summary {
+      padding: 1;
+      border: tall $accent;
+      height: auto;
+      min-height: 4;
+    }
+    #question-analysis, #question-recommendation, #question-status,
     #active-decisions, #open-candidates, #open-suggestions, #recent-activity, #decision-detail {
       border: round $panel;
       padding: 1;
       height: 1fr;
+      min-height: 4;
+      overflow-y: auto;
     }
+    #recent-questions {
+      border: round $panel;
+      padding: 1;
+      height: 6;
+      min-height: 4;
+      overflow-y: auto;
+    }
+    #question-select {
+      height: auto;
+      min-height: 3;
+      margin-top: 0;
+      margin-bottom: 1;
+      border: round $accent;
+    }
+    #active-decisions {
+      min-height: 6;
+    }
+    #question-analysis { height: 2fr; min-height: 7; }
+    #question-recommendation, #question-status { min-height: 5; }
     #panel-actions { height: auto; }
     #panel-output { height: 16; border: round $panel; }
     #status { padding: 1; }
@@ -45,8 +71,8 @@ class MultiAgentTUI(App[None]):
                 with Horizontal(id="panel-actions"):
                     yield Button("Refresh", id="refresh", variant="primary")
                 yield Static("Latest questions", classes="section-title")
-                yield Static("", id="recent-questions")
                 yield Select([], prompt="Select question", id="question-select", allow_blank=True)
+                yield Static("", id="recent-questions")
                 yield Static("Active decisions", classes="section-title")
                 yield Static("", id="active-decisions")
                 yield Select([], prompt="Select active decision", id="decision-select", allow_blank=True)
@@ -98,6 +124,9 @@ class MultiAgentTUI(App[None]):
             return self._selected_question_id
         return available_question_ids[0]
 
+    def _schedule_question_render(self, question_id: str) -> None:
+        self.call_later(self._render_question_analysis, question_id)
+
     def _refresh_dashboard(self) -> None:
         storage = Storage(db_path=self.db_path)
         try:
@@ -120,19 +149,21 @@ class MultiAgentTUI(App[None]):
 
         self._recent_question_ids = [question.id for question in recent_questions]
         question_lines = []
-        for question in recent_questions:
+        for question in recent_questions[:5]:
             summary = " ".join(question.question_text.split())
-            if len(summary) > 72:
-                summary = summary[:69].rstrip() + "..."
+            if len(summary) > 52:
+                summary = summary[:49].rstrip() + "..."
             question_lines.append(
-                f"- {question.id[:8]} | {question.created_at.isoformat()} | "
-                f"{question.topic} | {question.status} | {summary}"
+                f"- {question.id[:8]} | {question.topic} | {summary}"
             )
         self.query_one("#recent-questions", Static).update(
             "\n".join(question_lines) if question_lines else "No previous panel questions."
         )
 
         question_select = self.query_one("#question-select", Select)
+        current_selected_question = self._resolve_select_value(question_select.value)
+        if current_selected_question:
+            self._selected_question_id = current_selected_question
         question_options = [
             (
                 f"{question.id[:8]} | {question.created_at.isoformat()} | {question.topic} | {question.status}",
@@ -144,8 +175,9 @@ class MultiAgentTUI(App[None]):
         selected_question_id = self._pick_question_id_after_refresh(self._recent_question_ids)
         if selected_question_id is not None:
             self._selected_question_id = selected_question_id
-            question_select.value = selected_question_id
-            self._render_question_analysis(selected_question_id)
+            if self._resolve_select_value(question_select.value) != selected_question_id:
+                question_select.value = selected_question_id
+            self._schedule_question_render(selected_question_id)
         else:
             self.query_one("#question-analysis", Static).update("Select a question to inspect analysis.")
             self.query_one("#question-recommendation", Static).update("No combined recommendation available.")
@@ -322,7 +354,7 @@ class MultiAgentTUI(App[None]):
         selected_value = self._resolve_select_value(event.value)
         if event.select.id == "question-select" and selected_value:
             self._selected_question_id = selected_value
-            self._render_question_analysis(selected_value)
+            self._schedule_question_render(selected_value)
             return
         if event.select.id == "decision-select" and selected_value:
             self._render_decision_detail(selected_value)
