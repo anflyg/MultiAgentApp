@@ -176,6 +176,18 @@ def test_show_decision_includes_relation_info(tmp_path, capsys, monkeypatch):
         consequences="Consequence details",
         follow_up_notes="Follow-up details",
     )
+    storage = Storage(db_path=str(db_path))
+    try:
+        storage.add_reasoning_item(
+            models.ReasoningItem(
+                decision_id=new_decision.id,
+                kind="objection",
+                content="Objection: rollout timeline may be too aggressive.",
+                source_type="manual",
+            )
+        )
+    finally:
+        storage.close()
     link_decisions(str(db_path), new_decision.id, old_decision.id, "clarifies")
 
     monkeypatch.setattr(
@@ -198,6 +210,9 @@ def test_show_decision_includes_relation_info(tmp_path, capsys, monkeypatch):
     assert "Alternatives considered: Alternative details" in output
     assert "Consequences: Consequence details" in output
     assert "Follow-up notes: Follow-up details" in output
+    assert "Reasoning items: 1" in output
+    assert "[objection]" in output
+    assert "rollout timeline may be too aggressive" in output
     assert "Outgoing links: 1" in output
     assert "Incoming links: 0" in output
     assert "clarifies" in output

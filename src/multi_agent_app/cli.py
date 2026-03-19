@@ -396,7 +396,12 @@ def list_decision_links(db_path: str, decision_id: str) -> List[models.DecisionL
 
 def show_decision(
     db_path: str, decision_id: str
-) -> tuple[models.Decision, List[models.DecisionLink], List[models.DecisionLink]]:
+) -> tuple[
+    models.Decision,
+    List[models.DecisionLink],
+    List[models.DecisionLink],
+    List[models.ReasoningItem],
+]:
     storage = Storage(db_path=db_path)
     try:
         decision = storage.get_decision(decision_id)
@@ -404,7 +409,8 @@ def show_decision(
             raise ValueError(f"Decision '{decision_id}' was not found")
         outgoing_links = storage.list_outgoing_links(decision_id)
         incoming_links = storage.list_incoming_links(decision_id)
-        return decision, outgoing_links, incoming_links
+        reasoning_items = storage.list_reasoning_items_for_decision(decision_id)
+        return decision, outgoing_links, incoming_links, reasoning_items
     finally:
         storage.close()
 
@@ -1082,7 +1088,9 @@ def main() -> None:
 
     if args.command == "show-decision":
         try:
-            decision, outgoing_links, incoming_links = show_decision(args.db_path, args.decision_id)
+            decision, outgoing_links, incoming_links, reasoning_items = show_decision(
+                args.db_path, args.decision_id
+            )
         except ValueError as exc:
             print(f"Decision show failed: {exc}")
             raise SystemExit(1) from exc
@@ -1101,6 +1109,13 @@ def main() -> None:
         print(f"Alternatives considered: {decision.alternatives_considered or '-'}")
         print(f"Consequences: {decision.consequences or '-'}")
         print(f"Follow-up notes: {decision.follow_up_notes or '-'}")
+        print(f"Reasoning items: {len(reasoning_items)}")
+        for item in reasoning_items:
+            print(
+                f"- {item.id} [{item.kind}] source={item.source_type} "
+                f"question={item.question_id or '-'}"
+            )
+            print(f"  {item.content}")
         print(f"Outgoing links: {len(outgoing_links)}")
         for link in outgoing_links:
             print(f"- {link.id} [{link.relation_type}] {link.from_decision_id} -> {link.to_decision_id}")

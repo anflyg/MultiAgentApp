@@ -2,6 +2,8 @@ import sqlite3
 from datetime import datetime, timezone
 from uuid import uuid4
 
+import pytest
+
 from multi_agent_app import models
 from multi_agent_app.storage import Storage
 
@@ -210,5 +212,69 @@ def test_storage_migrates_decision_context_columns_for_existing_db(tmp_path):
         assert fetched.alternatives_considered is None
         assert fetched.consequences is None
         assert fetched.follow_up_notes is None
+    finally:
+        storage.close()
+
+
+def test_storage_add_and_list_reasoning_items_for_decision_and_question():
+    storage = Storage(db_path=":memory:")
+    session = models.Session(name="Reasoning Session")
+    storage.add_session(session)
+
+    decision = models.Decision(
+        session_id=session.id,
+        title="Rollout policy",
+        topic="Release",
+        decision_text="Use staged rollout.",
+    )
+    storage.add_decision(decision)
+    question = models.ExecutiveQuestion(
+        question_text="Should we speed up rollout?",
+        topic="Release",
+        session_id=session.id,
+    )
+    storage.add_panel_question(question)
+
+    storage.add_reasoning_item(
+        models.ReasoningItem(
+            decision_id=decision.id,
+            kind="risk",
+            content="Fast rollout can increase incident risk.",
+            source_type="panel",
+        )
+    )
+    storage.add_reasoning_item(
+        models.ReasoningItem(
+            question_id=question.id,
+            kind="open_question",
+            content="Do we have enough on-call coverage this week?",
+            source_type="operator",
+        )
+    )
+
+    decision_items = storage.list_reasoning_items_for_decision(decision.id)
+    question_items = storage.list_reasoning_items_for_question(question.id)
+
+    assert len(decision_items) == 1
+    assert decision_items[0].kind == "risk"
+    assert decision_items[0].source_type == "panel"
+
+    assert len(question_items) == 1
+    assert question_items[0].kind == "open_question"
+    assert question_items[0].source_type == "operator"
+    storage.close()
+
+
+def test_storage_reasoning_item_requires_decision_or_question_reference():
+    storage = Storage(db_path=":memory:")
+    try:
+        with pytest.raises(ValueError, match="must reference either decision_id or question_id"):
+            storage.add_reasoning_item(
+                models.ReasoningItem(
+                    kind="assumption",
+                    content="Assume stable traffic.",
+                    source_type="system",
+                )
+            )
     finally:
         storage.close()

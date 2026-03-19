@@ -133,6 +133,17 @@ class Storage:
                 FOREIGN KEY(target_decision_id) REFERENCES decisions(id),
                 UNIQUE(source_decision_id, target_decision_id, suggestion_type)
             );
+            CREATE TABLE IF NOT EXISTS reasoning_items (
+                id TEXT PRIMARY KEY,
+                decision_id TEXT,
+                question_id TEXT,
+                kind TEXT NOT NULL,
+                content TEXT NOT NULL,
+                source_type TEXT NOT NULL DEFAULT 'system',
+                created_at TEXT NOT NULL,
+                FOREIGN KEY(decision_id) REFERENCES decisions(id),
+                FOREIGN KEY(question_id) REFERENCES panel_questions(id)
+            );
             CREATE TABLE IF NOT EXISTS panel_questions (
                 id TEXT PRIMARY KEY,
                 question TEXT NOT NULL,
@@ -197,6 +208,7 @@ class Storage:
         self._ensure_column("decision_candidates", "status", "TEXT NOT NULL DEFAULT 'proposed'")
         self._ensure_column("decision_candidates", "owner", "TEXT")
         self._ensure_column("decision_candidates", "tags", "TEXT NOT NULL DEFAULT '[]'")
+        self._ensure_column("reasoning_items", "source_type", "TEXT NOT NULL DEFAULT 'system'")
         self._ensure_column("panel_questions", "question_text", "TEXT")
         self._ensure_column("panel_questions", "status", "TEXT NOT NULL DEFAULT 'open'")
         self._conn.commit()
@@ -400,6 +412,60 @@ class Storage:
             (event.id, event.session_id, event.event_type, event.message, _to_iso(event.created_at)),
         )
         self._conn.commit()
+
+    def add_reasoning_item(self, item: models.ReasoningItem) -> None:
+        if not item.decision_id and not item.question_id:
+            raise ValueError("Reasoning item must reference either decision_id or question_id")
+        self._conn.execute(
+            """
+            INSERT OR REPLACE INTO reasoning_items (
+                id, decision_id, question_id, kind, content, source_type, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                item.id,
+                item.decision_id,
+                item.question_id,
+                item.kind,
+                item.content,
+                item.source_type,
+                _to_iso(item.created_at),
+            ),
+        )
+        self._conn.commit()
+
+    def list_reasoning_items_for_decision(self, decision_id: str) -> List[models.ReasoningItem]:
+        rows = self._conn.execute(
+            """
+            SELECT * FROM reasoning_items
+            WHERE decision_id = ?
+            ORDER BY created_at
+            """,
+            (decision_id,),
+        ).fetchall()
+        return [self._reasoning_item_from_row(row) for row in rows]
+
+    def list_reasoning_items_for_question(self, question_id: str) -> List[models.ReasoningItem]:
+        rows = self._conn.execute(
+            """
+            SELECT * FROM reasoning_items
+            WHERE question_id = ?
+            ORDER BY created_at
+            """,
+            (question_id,),
+        ).fetchall()
+        return [self._reasoning_item_from_row(row) for row in rows]
+
+    def _reasoning_item_from_row(self, row: sqlite3.Row) -> models.ReasoningItem:
+        return models.ReasoningItem(
+            id=row["id"],
+            decision_id=row["decision_id"],
+            question_id=row["question_id"],
+            kind=row["kind"],
+            content=row["content"],
+            source_type=row["source_type"] if "source_type" in row.keys() and row["source_type"] else "system",
+            created_at=_from_iso(row["created_at"]),
+        )
 
     def add_decision(self, decision: models.Decision) -> None:
         self._conn.execute(

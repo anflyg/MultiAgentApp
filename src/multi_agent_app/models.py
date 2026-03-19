@@ -139,6 +139,18 @@ class DecisionSuggestion(BaseModel):
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
+class ReasoningItem(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str = Field(default_factory=lambda: str(uuid4()))
+    decision_id: str | None = None
+    question_id: str | None = None
+    kind: Literal["risk", "objection", "assumption", "rationale", "open_question"]
+    content: str
+    source_type: Literal["panel", "system", "operator", "agent", "manual"] = "system"
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
 class ExecutiveQuestion(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
