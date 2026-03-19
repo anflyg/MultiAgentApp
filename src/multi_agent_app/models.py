@@ -133,14 +133,23 @@ class DecisionSuggestion(BaseModel):
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
-class PanelQuestion(BaseModel):
+class ExecutiveQuestion(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     id: str = Field(default_factory=lambda: str(uuid4()))
-    question: str
+    question_text: str
     topic: str
     session_id: str | None = None
+    status: Literal["open", "answered", "closed"] = "open"
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+class PanelQuestion(ExecutiveQuestion):
+    """Backward compatible alias while moving to ExecutiveQuestion as domain model."""
+
+    @property
+    def question(self) -> str:
+        return self.question_text
 
 
 class PanelResponse(BaseModel):

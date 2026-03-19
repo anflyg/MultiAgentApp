@@ -559,7 +559,7 @@ def dismiss_decision_suggestion(db_path: str, suggestion_id: str) -> models.Deci
 def ask_decision_panel(
     db_path: str, question: str, topic: str, session_id: str | None = None
 ) -> tuple[
-    models.PanelQuestion,
+    models.ExecutiveQuestion,
     dict,
     models.DecisionAlignmentAssessment,
     list[models.PanelResponse],
@@ -580,8 +580,8 @@ def ask_decision_panel(
             session = storage.get_session(session_id)
             if session is None:
                 raise ValueError(f"Session '{session_id}' was not found")
-        panel_question = models.PanelQuestion(
-            question=normalized_question,
+        panel_question = models.ExecutiveQuestion(
+            question_text=normalized_question,
             topic=normalized_topic,
             session_id=session_id,
         )
@@ -1079,7 +1079,7 @@ def main() -> None:
             raise SystemExit(1) from exc
 
         by_agent = {response.agent_name: response.response_text for response in responses}
-        print(f"Question: {panel_question.question}")
+        print(f"Question: {panel_question.question_text}")
         print(f"Topic: {panel_question.topic}")
 
         print("Relevant active decisions:")

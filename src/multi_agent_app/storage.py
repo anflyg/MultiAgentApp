@@ -130,8 +130,10 @@ class Storage:
             CREATE TABLE IF NOT EXISTS panel_questions (
                 id TEXT PRIMARY KEY,
                 question TEXT NOT NULL,
+                question_text TEXT,
                 topic TEXT NOT NULL,
                 session_id TEXT,
+                status TEXT NOT NULL DEFAULT 'open',
                 created_at TEXT NOT NULL,
                 FOREIGN KEY(session_id) REFERENCES sessions(id)
             );
@@ -164,6 +166,8 @@ class Storage:
         self._ensure_column("decision_candidates", "status", "TEXT NOT NULL DEFAULT 'proposed'")
         self._ensure_column("decision_candidates", "owner", "TEXT")
         self._ensure_column("decision_candidates", "tags", "TEXT NOT NULL DEFAULT '[]'")
+        self._ensure_column("panel_questions", "question_text", "TEXT")
+        self._ensure_column("panel_questions", "status", "TEXT NOT NULL DEFAULT 'open'")
         self._conn.commit()
 
     def _ensure_column(self, table: str, column: str, definition: str) -> None:
@@ -570,35 +574,39 @@ class Storage:
             created_at=_from_iso(row["created_at"]),
         )
 
-    def add_panel_question(self, question: models.PanelQuestion) -> None:
+    def add_panel_question(self, question: models.ExecutiveQuestion) -> None:
         self._conn.execute(
             """
             INSERT OR REPLACE INTO panel_questions (
-                id, question, topic, session_id, created_at
-            ) VALUES (?, ?, ?, ?, ?)
+                id, question, question_text, topic, session_id, status, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 question.id,
-                question.question,
+                question.question_text,
+                question.question_text,
                 question.topic,
                 question.session_id,
+                question.status,
                 _to_iso(question.created_at),
             ),
         )
         self._conn.commit()
 
-    def get_panel_question(self, question_id: str) -> Optional[models.PanelQuestion]:
+    def get_panel_question(self, question_id: str) -> Optional[models.ExecutiveQuestion]:
         row = self._conn.execute(
             "SELECT * FROM panel_questions WHERE id = ?",
             (question_id,),
         ).fetchone()
         if not row:
             return None
-        return models.PanelQuestion(
+        question_text = row["question_text"] if "question_text" in row.keys() and row["question_text"] else row["question"]
+        return models.ExecutiveQuestion(
             id=row["id"],
-            question=row["question"],
+            question_text=question_text,
             topic=row["topic"],
             session_id=row["session_id"],
+            status=row["status"] if "status" in row.keys() and row["status"] else "open",
             created_at=_from_iso(row["created_at"]),
         )
 

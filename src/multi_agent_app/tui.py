@@ -204,7 +204,7 @@ class MultiAgentTUI(App[None]):
             return
 
         by_agent = {response.agent_name: response.response_text for response in responses}
-        output.write(f"Question: {panel_question.question}")
+        output.write(f"Question: {panel_question.question_text}")
         output.write(f"Topic: {panel_question.topic}")
         output.write(
             "Relevant active decisions: "

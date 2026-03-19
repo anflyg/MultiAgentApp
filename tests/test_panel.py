@@ -8,19 +8,20 @@ from multi_agent_app.storage import Storage
 
 def test_store_and_get_panel_question():
     storage = Storage(db_path=":memory:")
-    question = models.PanelQuestion(question="Should we change DB?", topic="Persistence")
+    question = models.ExecutiveQuestion(question_text="Should we change DB?", topic="Persistence")
     storage.add_panel_question(question)
 
     fetched = storage.get_panel_question(question.id)
     assert fetched is not None
-    assert fetched.question == "Should we change DB?"
+    assert fetched.question_text == "Should we change DB?"
     assert fetched.topic == "Persistence"
+    assert fetched.status == "open"
     storage.close()
 
 
 def test_store_and_list_panel_responses():
     storage = Storage(db_path=":memory:")
-    question = models.PanelQuestion(question="What next?", topic="Roadmap")
+    question = models.ExecutiveQuestion(question_text="What next?", topic="Roadmap")
     storage.add_panel_question(question)
     responses = [
         models.PanelResponse(question_id=question.id, agent_name="strateg", response_text="Direction is stable."),
