@@ -300,6 +300,64 @@ def governance_response(
     return f"Active governing decisions: {governed}. Treat this question as: {mode}."
 
 
+def default_advisor_roles() -> list[models.AdvisorRole]:
+    return [
+        models.AdvisorRole(
+            name="strateg",
+            purpose="Challenge directional fit and strategic consistency.",
+            output_style="Directional and escalation-oriented guidance.",
+            active=True,
+            is_default=True,
+        ),
+        models.AdvisorRole(
+            name="analyst",
+            purpose="Surface risk signals and evidence gaps.",
+            output_style="Risk-oriented and evidence-focused analysis.",
+            active=True,
+            is_default=True,
+        ),
+        models.AdvisorRole(
+            name="operator",
+            purpose="Translate direction into executable next actions.",
+            output_style="Operational and implementation-focused guidance.",
+            active=True,
+            is_default=True,
+        ),
+        models.AdvisorRole(
+            name="governance",
+            purpose="Anchor interpretation in active governing decisions.",
+            output_style="Policy and decision-status framing.",
+            active=True,
+            is_default=True,
+        ),
+    ]
+
+
+def active_advisor_roles(roles: list[models.AdvisorRole] | None = None) -> list[models.AdvisorRole]:
+    return [role for role in (roles or default_advisor_roles()) if role.active]
+
+
+def per_role_analysis(
+    question: str,
+    context: PanelContext,
+    assessment: models.DecisionAlignmentAssessment,
+    roles: list[models.AdvisorRole] | None = None,
+) -> dict[str, str]:
+    responders = {
+        "strateg": strateg_response,
+        "analyst": analyst_response,
+        "operator": operator_response,
+        "governance": governance_response,
+    }
+    output: dict[str, str] = {}
+    for role in active_advisor_roles(roles):
+        responder = responders.get(role.name)
+        if responder is None:
+            continue
+        output[role.name] = responder(question, context, assessment)
+    return output
+
+
 def likely_requires_new_decision(assessment: models.DecisionAlignmentAssessment) -> str:
     if assessment.alignment == "aligned":
         return "no"

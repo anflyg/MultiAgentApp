@@ -139,6 +139,16 @@ class DecisionSuggestion(BaseModel):
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
+class AdvisorRole(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: Literal["strateg", "analyst", "operator", "governance"]
+    purpose: str
+    output_style: str
+    active: bool = True
+    is_default: bool = True
+
+
 class ReasoningItem(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

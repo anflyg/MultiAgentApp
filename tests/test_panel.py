@@ -3,7 +3,12 @@ from datetime import datetime, timedelta, timezone
 
 from multi_agent_app import models
 from multi_agent_app.cli import ask_decision_panel, create_decision, create_session, main
-from multi_agent_app.panel import assess_question_against_active_decisions, build_context_packet
+from multi_agent_app.panel import (
+    assess_question_against_active_decisions,
+    build_context_packet,
+    default_advisor_roles,
+    per_role_analysis,
+)
 from multi_agent_app.storage import Storage
 
 
@@ -35,6 +40,42 @@ def test_store_and_list_panel_responses():
     assert fetched[0].agent_name == "strateg"
     assert fetched[1].agent_name == "analyst"
     storage.close()
+
+
+def test_default_advisor_roles_are_domain_objects():
+    roles = default_advisor_roles()
+    assert [role.name for role in roles] == ["strateg", "analyst", "operator", "governance"]
+    assert all(role.active for role in roles)
+    assert all(role.is_default for role in roles)
+    assert all(role.purpose for role in roles)
+    assert all(role.output_style for role in roles)
+
+
+def test_per_role_analysis_uses_active_roles_only():
+    roles = default_advisor_roles()
+    for role in roles:
+        if role.name == "governance":
+            role.active = False
+
+    assessment = models.DecisionAlignmentAssessment(
+        alignment="clarification_needed",
+        reason="Needs clarification.",
+        challenge_points=["Check alignment."],
+    )
+    context = {
+        "active_decisions": [],
+        "historical_decisions": [],
+        "open_candidates": [],
+        "open_suggestions": [],
+        "decision_links": [],
+    }
+    outputs = per_role_analysis(
+        question="How should we execute this?",
+        context=context,
+        assessment=assessment,
+        roles=roles,
+    )
+    assert set(outputs.keys()) == {"strateg", "analyst", "operator"}
 
 
 def test_retrieval_returns_active_and_superseded_by_topic(tmp_path):

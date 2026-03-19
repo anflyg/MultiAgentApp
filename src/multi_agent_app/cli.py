@@ -8,16 +8,15 @@ from . import models
 from .agents import BaseAgent, PlannerAgent, ReviewerAgent, WriterAgent
 from .orchestrator import OrchestrationError, Orchestrator
 from .panel import (
+    active_advisor_roles,
     assess_question_against_active_decisions,
     build_panel_sections,
     build_context_packet,
     combined_recommendation,
-    governance_response,
+    default_advisor_roles,
     likely_requires_new_decision,
-    operator_response,
-    strateg_response,
+    per_role_analysis,
     suggested_next_step,
-    analyst_response,
 )
 from .storage import Storage
 
@@ -610,34 +609,22 @@ def ask_decision_panel(
             normalized_question, context["active_decisions"]
         )
 
-        per_role_analysis = {
-            "strateg": strateg_response(normalized_question, context, assessment),
-            "analyst": analyst_response(normalized_question, context, assessment),
-            "operator": operator_response(normalized_question, context, assessment),
-            "governance": governance_response(normalized_question, context, assessment),
-        }
+        roles = active_advisor_roles(default_advisor_roles())
+        role_analysis_outputs = per_role_analysis(
+            question=normalized_question,
+            context=context,
+            assessment=assessment,
+            roles=roles,
+        )
         responses = [
-            models.PanelResponse(
-                question_id=panel_question.id,
-                agent_name="strateg",
-                response_text=per_role_analysis["strateg"],
-            ),
-            models.PanelResponse(
-                question_id=panel_question.id,
-                agent_name="analyst",
-                response_text=per_role_analysis["analyst"],
-            ),
-            models.PanelResponse(
-                question_id=panel_question.id,
-                agent_name="operator",
-                response_text=per_role_analysis["operator"],
-            ),
-            models.PanelResponse(
-                question_id=panel_question.id,
-                agent_name="governance",
-                response_text=per_role_analysis["governance"],
-            ),
-        ]
+                models.PanelResponse(
+                    question_id=panel_question.id,
+                    agent_name=role.name,
+                    response_text=role_analysis_outputs[role.name],
+                )
+                for role in roles
+                if role.name in role_analysis_outputs
+            ]
         storage.add_panel_responses(responses)
         storage.set_panel_question_context_decisions(
             panel_question.id,
@@ -648,13 +635,13 @@ def ask_decision_panel(
         likely_new_decision = likely_requires_new_decision(assessment)
         next_step = suggested_next_step(normalized_question, context, assessment)
         sections = build_panel_sections(
-            question=normalized_question,
-            context=context,
-            assessment=assessment,
-            per_role_analysis=per_role_analysis,
-            combined=combined,
-            likely_new_decision=likely_new_decision,
-        )
+                question=normalized_question,
+                context=context,
+                assessment=assessment,
+                per_role_analysis=role_analysis_outputs,
+                combined=combined,
+                likely_new_decision=likely_new_decision,
+            )
         storage.add_panel_question_analysis(
             models.ExecutiveQuestionAnalysis(
                 question_id=panel_question.id,
