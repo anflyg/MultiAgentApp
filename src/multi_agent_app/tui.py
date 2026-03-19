@@ -34,6 +34,7 @@ class MultiAgentTUI(App[None]):
         self.db_path = db_path
         self._active_decision_ids: list[str] = []
         self._recent_question_ids: list[str] = []
+        self._selected_question_id: str | None = None
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
@@ -80,6 +81,23 @@ class MultiAgentTUI(App[None]):
     def _status(self, text: str) -> None:
         self.query_one("#status", Static).update(text)
 
+    def _resolve_select_value(self, value: object) -> str | None:
+        if value is None or value == Select.BLANK:
+            return None
+        if isinstance(value, str):
+            return value if value else None
+        nested_value = getattr(value, "value", None)
+        if isinstance(nested_value, str):
+            return nested_value if nested_value else None
+        return None
+
+    def _pick_question_id_after_refresh(self, available_question_ids: list[str]) -> str | None:
+        if not available_question_ids:
+            return None
+        if self._selected_question_id and self._selected_question_id in available_question_ids:
+            return self._selected_question_id
+        return available_question_ids[0]
+
     def _refresh_dashboard(self) -> None:
         storage = Storage(db_path=self.db_path)
         try:
@@ -123,9 +141,11 @@ class MultiAgentTUI(App[None]):
             for question in recent_questions
         ]
         question_select.set_options(question_options)
-        if question_options:
-            question_select.value = question_options[0][1]
-            self._render_question_analysis(question_options[0][1])
+        selected_question_id = self._pick_question_id_after_refresh(self._recent_question_ids)
+        if selected_question_id is not None:
+            self._selected_question_id = selected_question_id
+            question_select.value = selected_question_id
+            self._render_question_analysis(selected_question_id)
         else:
             self.query_one("#question-analysis", Static).update("Select a question to inspect analysis.")
             self.query_one("#question-recommendation", Static).update("No combined recommendation available.")
@@ -299,11 +319,13 @@ class MultiAgentTUI(App[None]):
         self.query_one("#question-status", Static).update(status_text)
 
     def on_select_changed(self, event: Select.Changed) -> None:
-        if event.select.id == "question-select" and isinstance(event.value, str) and event.value:
-            self._render_question_analysis(event.value)
+        selected_value = self._resolve_select_value(event.value)
+        if event.select.id == "question-select" and selected_value:
+            self._selected_question_id = selected_value
+            self._render_question_analysis(selected_value)
             return
-        if event.select.id == "decision-select" and isinstance(event.value, str) and event.value:
-            self._render_decision_detail(event.value)
+        if event.select.id == "decision-select" and selected_value:
+            self._render_decision_detail(selected_value)
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "refresh":
@@ -379,10 +401,8 @@ class MultiAgentTUI(App[None]):
         output.write(f"Likely requires new decision?: {likely_new_decision}")
         output.write(f"Suggested next step: {next_step}")
         self._status("Panel response generated.")
+        self._selected_question_id = panel_question.id
         self._refresh_dashboard()
-        question_select = self.query_one("#question-select", Select)
-        question_select.value = panel_question.id
-        self._render_question_analysis(panel_question.id)
 
 
 def run_tui(db_path: str = "multi_agent.db") -> None:

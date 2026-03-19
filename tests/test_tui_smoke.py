@@ -72,3 +72,26 @@ def test_tui_build_question_detail_texts_handles_missing_case():
     assert "not found" in analysis_text.lower()
     assert "No combined recommendation available." == recommendation_text
     assert "No decision status assessment available." == status_text
+
+
+def test_tui_resolve_select_value_handles_string_and_blank():
+    pytest.importorskip("textual")
+    from textual.widgets import Select
+
+    from multi_agent_app.tui import MultiAgentTUI
+
+    app = MultiAgentTUI(db_path=":memory:")
+    assert app._resolve_select_value("Q1") == "Q1"
+    assert app._resolve_select_value("") is None
+    assert app._resolve_select_value(Select.BLANK) is None
+
+
+def test_tui_pick_question_id_after_refresh_prefers_previous_selection():
+    pytest.importorskip("textual")
+    from multi_agent_app.tui import MultiAgentTUI
+
+    app = MultiAgentTUI(db_path=":memory:")
+    app._selected_question_id = "Q2"
+    assert app._pick_question_id_after_refresh(["Q1", "Q2", "Q3"]) == "Q2"
+    assert app._pick_question_id_after_refresh(["Q1", "Q3"]) == "Q1"
+    assert app._pick_question_id_after_refresh([]) is None
