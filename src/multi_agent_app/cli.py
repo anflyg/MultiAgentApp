@@ -620,11 +620,37 @@ def ask_decision_panel(
             ),
         ]
         storage.add_panel_responses(responses)
+        storage.set_panel_question_context_decisions(
+            panel_question.id,
+            [decision.id for decision in context["active_decisions"]],
+        )
 
         combined = combined_recommendation(normalized_question, context, assessment)
         likely_new_decision = likely_requires_new_decision(assessment)
         next_step = suggested_next_step(normalized_question, context, assessment)
+        storage.add_panel_question_analysis(
+            models.ExecutiveQuestionAnalysis(
+                question_id=panel_question.id,
+                assessment_alignment=assessment.alignment,
+                assessment_reason=assessment.reason,
+                challenge_points=assessment.challenge_points,
+                combined_recommendation=combined,
+                suggested_next_step=next_step,
+                likely_requires_new_decision=likely_new_decision,
+            )
+        )
         return panel_question, context, assessment, responses, combined, likely_new_decision, next_step
+    finally:
+        storage.close()
+
+
+def show_panel_question_case(db_path: str, question_id: str) -> dict:
+    storage = Storage(db_path=db_path)
+    try:
+        case = storage.get_panel_question_case(question_id)
+        if case is None:
+            raise ValueError(f"Panel question '{question_id}' was not found")
+        return case
     finally:
         storage.close()
 
@@ -782,6 +808,11 @@ def _build_parser() -> argparse.ArgumentParser:
     ask_panel_parser.add_argument("--question", required=True, help="Leadership panel question.")
     ask_panel_parser.add_argument("--topic", required=True, help="Decision topic.")
     ask_panel_parser.add_argument("--session-id", help="Optional session scope.")
+
+    show_panel_question_parser = subparsers.add_parser(
+        "show-panel-question", help="Show a previously stored panel question and analysis."
+    )
+    show_panel_question_parser.add_argument("--question-id", required=True, help="Panel question id.")
 
     subparsers.add_parser("tui", help="Launch Textual terminal UI.")
 
@@ -1128,6 +1159,51 @@ def main() -> None:
         print(f"Combined recommendation: {combined}")
         print(f"Likely requires new decision?: {likely_new_decision}")
         print(f"Suggested next step: {next_step}")
+        print(f"Question case id: {panel_question.id}")
+        return
+
+    if args.command == "show-panel-question":
+        try:
+            case = show_panel_question_case(args.db_path, args.question_id)
+        except ValueError as exc:
+            print(f"Panel question lookup failed: {exc}")
+            raise SystemExit(1) from exc
+
+        question = case["question"]
+        analysis = case["analysis"]
+        responses = case["responses"]
+        context_decision_ids = case["context_decision_ids"]
+        by_agent = {response.agent_name: response.response_text for response in responses}
+
+        print(f"Question: {question.question_text}")
+        print(f"Topic: {question.topic}")
+        print(f"Status: {question.status}")
+        print(
+            "Active decision context ids: "
+            + (", ".join(context_decision_ids) if context_decision_ids else "none")
+        )
+        if analysis is not None:
+            print(
+                f"Decision alignment assessment: "
+                f"{analysis.assessment_alignment} ({analysis.assessment_reason})"
+            )
+            print(
+                "Challenge points: "
+                + (" | ".join(analysis.challenge_points) if analysis.challenge_points else "none")
+            )
+            print(f"Combined recommendation: {analysis.combined_recommendation}")
+            print(f"Likely requires new decision?: {analysis.likely_requires_new_decision}")
+            print(f"Suggested next step: {analysis.suggested_next_step}")
+        else:
+            print("Decision alignment assessment: none")
+            print("Challenge points: none")
+            print("Combined recommendation: none")
+            print("Likely requires new decision?: probably")
+            print("Suggested next step: none")
+        print(f"Strateg: {by_agent.get('strateg', '-')}")
+        print(f"Analyst: {by_agent.get('analyst', '-')}")
+        print(f"Operator: {by_agent.get('operator', '-')}")
+        print(f"Governance: {by_agent.get('governance', '-')}")
         return
 
     if args.command == "tui":

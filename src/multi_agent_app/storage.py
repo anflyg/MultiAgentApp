@@ -145,6 +145,25 @@ class Storage:
                 created_at TEXT NOT NULL,
                 FOREIGN KEY(question_id) REFERENCES panel_questions(id)
             );
+            CREATE TABLE IF NOT EXISTS panel_question_analyses (
+                id TEXT PRIMARY KEY,
+                question_id TEXT NOT NULL UNIQUE,
+                assessment_alignment TEXT NOT NULL,
+                assessment_reason TEXT NOT NULL,
+                challenge_points TEXT NOT NULL DEFAULT '[]',
+                combined_recommendation TEXT NOT NULL,
+                suggested_next_step TEXT NOT NULL,
+                likely_requires_new_decision TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                FOREIGN KEY(question_id) REFERENCES panel_questions(id)
+            );
+            CREATE TABLE IF NOT EXISTS panel_question_context_decisions (
+                question_id TEXT NOT NULL,
+                decision_id TEXT NOT NULL,
+                PRIMARY KEY(question_id, decision_id),
+                FOREIGN KEY(question_id) REFERENCES panel_questions(id),
+                FOREIGN KEY(decision_id) REFERENCES decisions(id)
+            );
             """
         )
         self._ensure_column("sessions", "status", "TEXT NOT NULL DEFAULT 'active'")
@@ -645,6 +664,92 @@ class Storage:
             )
             for row in rows
         ]
+
+    def add_panel_question_analysis(self, analysis: models.ExecutiveQuestionAnalysis) -> None:
+        self._conn.execute(
+            """
+            INSERT OR REPLACE INTO panel_question_analyses (
+                id,
+                question_id,
+                assessment_alignment,
+                assessment_reason,
+                challenge_points,
+                combined_recommendation,
+                suggested_next_step,
+                likely_requires_new_decision,
+                created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                analysis.id,
+                analysis.question_id,
+                analysis.assessment_alignment,
+                analysis.assessment_reason,
+                json.dumps(analysis.challenge_points),
+                analysis.combined_recommendation,
+                analysis.suggested_next_step,
+                analysis.likely_requires_new_decision,
+                _to_iso(analysis.created_at),
+            ),
+        )
+        self._conn.commit()
+
+    def get_panel_question_analysis(self, question_id: str) -> Optional[models.ExecutiveQuestionAnalysis]:
+        row = self._conn.execute(
+            "SELECT * FROM panel_question_analyses WHERE question_id = ?",
+            (question_id,),
+        ).fetchone()
+        if not row:
+            return None
+        return models.ExecutiveQuestionAnalysis(
+            id=row["id"],
+            question_id=row["question_id"],
+            assessment_alignment=row["assessment_alignment"],
+            assessment_reason=row["assessment_reason"],
+            challenge_points=json.loads(row["challenge_points"]) if row["challenge_points"] else [],
+            combined_recommendation=row["combined_recommendation"],
+            suggested_next_step=row["suggested_next_step"],
+            likely_requires_new_decision=row["likely_requires_new_decision"],
+            created_at=_from_iso(row["created_at"]),
+        )
+
+    def set_panel_question_context_decisions(self, question_id: str, decision_ids: List[str]) -> None:
+        self._conn.execute(
+            "DELETE FROM panel_question_context_decisions WHERE question_id = ?",
+            (question_id,),
+        )
+        if decision_ids:
+            self._conn.executemany(
+                """
+                INSERT INTO panel_question_context_decisions (question_id, decision_id)
+                VALUES (?, ?)
+                """,
+                [(question_id, decision_id) for decision_id in decision_ids],
+            )
+        self._conn.commit()
+
+    def list_panel_question_context_decision_ids(self, question_id: str) -> List[str]:
+        rows = self._conn.execute(
+            """
+            SELECT decision_id
+            FROM panel_question_context_decisions
+            WHERE question_id = ?
+            ORDER BY decision_id
+            """,
+            (question_id,),
+        ).fetchall()
+        return [row["decision_id"] for row in rows]
+
+    def get_panel_question_case(self, question_id: str) -> Optional[dict]:
+        question = self.get_panel_question(question_id)
+        if question is None:
+            return None
+        return {
+            "question": question,
+            "analysis": self.get_panel_question_analysis(question_id),
+            "context_decision_ids": self.list_panel_question_context_decision_ids(question_id),
+            "responses": self.list_panel_responses(question_id),
+        }
 
     def add_decision_candidate(self, candidate: models.DecisionCandidate) -> None:
         self._conn.execute(

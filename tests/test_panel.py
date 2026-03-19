@@ -87,8 +87,21 @@ def test_ask_decision_panel_with_relevant_decisions_stores_question_and_response
     try:
         stored_question = storage.get_panel_question(question.id)
         stored_responses = storage.list_panel_responses(question.id)
+        stored_analysis = storage.get_panel_question_analysis(question.id)
+        context_decision_ids = storage.list_panel_question_context_decision_ids(question.id)
+        stored_case = storage.get_panel_question_case(question.id)
         assert stored_question is not None
         assert len(stored_responses) == 4
+        assert stored_analysis is not None
+        assert stored_analysis.combined_recommendation == combined
+        assert stored_analysis.suggested_next_step == next_step
+        assert stored_analysis.likely_requires_new_decision == likely_new_decision
+        assert context_decision_ids
+        assert all(decision_id in {decision.id for decision in context["active_decisions"]} for decision_id in context_decision_ids)
+        assert stored_case is not None
+        assert stored_case["question"].id == question.id
+        assert stored_case["analysis"] is not None
+        assert len(stored_case["responses"]) == 4
     finally:
         storage.close()
 
@@ -209,3 +222,34 @@ def test_ask_decision_panel_output_includes_required_sections(tmp_path, capsys, 
     assert "Combined recommendation:" in output
     assert "Likely requires new decision?:" in output
     assert "Suggested next step:" in output
+
+
+def test_show_panel_question_command_loads_saved_case(tmp_path, capsys, monkeypatch):
+    db_path = tmp_path / "panel_show_case_cli.db"
+    session = create_session(str(db_path), "Panel Show Case")
+    create_decision(str(db_path), session.id, "Direction", "Ops", "Keep weekly release.")
+
+    question, _, _, _, _, _, _ = ask_decision_panel(
+        db_path=str(db_path),
+        question="Hur ska vi utföra detta?",
+        topic="Ops",
+    )
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "main.py",
+            "--db-path",
+            str(db_path),
+            "show-panel-question",
+            "--question-id",
+            question.id,
+        ],
+    )
+    main()
+    output = capsys.readouterr().out
+    assert "Question:" in output
+    assert "Active decision context ids:" in output
+    assert "Decision alignment assessment:" in output
+    assert "Combined recommendation:" in output
+    assert "Strateg:" in output

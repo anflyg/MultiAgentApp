@@ -174,3 +174,22 @@ class DecisionAlignmentAssessment(BaseModel):
     reason: str
     active_decision_ids: list[str] = Field(default_factory=list)
     challenge_points: list[str] = Field(default_factory=list)
+
+
+class ExecutiveQuestionAnalysis(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str = Field(default_factory=lambda: str(uuid4()))
+    question_id: str
+    assessment_alignment: Literal[
+        "aligned",
+        "clarification_needed",
+        "potential_deviation",
+        "likely_new_decision_required",
+    ]
+    assessment_reason: str
+    challenge_points: list[str] = Field(default_factory=list)
+    combined_recommendation: str
+    suggested_next_step: str
+    likely_requires_new_decision: Literal["yes", "no", "probably"]
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
