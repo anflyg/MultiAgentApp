@@ -619,6 +619,34 @@ class Storage:
         ).fetchone()
         if not row:
             return None
+        return self._panel_question_from_row(row)
+
+    def list_panel_questions(
+        self,
+        session_id: str | None = None,
+        topic: str | None = None,
+        limit: int = 20,
+    ) -> List[models.ExecutiveQuestion]:
+        query = "SELECT * FROM panel_questions"
+        conditions: List[str] = []
+        params: List[object] = []
+
+        if session_id:
+            conditions.append("session_id = ?")
+            params.append(session_id)
+        if topic:
+            conditions.append("topic = ?")
+            params.append(topic)
+
+        if conditions:
+            query += " WHERE " + " AND ".join(conditions)
+        query += " ORDER BY created_at DESC LIMIT ?"
+        params.append(limit)
+
+        rows = self._conn.execute(query, tuple(params)).fetchall()
+        return [self._panel_question_from_row(row) for row in rows]
+
+    def _panel_question_from_row(self, row: sqlite3.Row) -> models.ExecutiveQuestion:
         question_text = row["question_text"] if "question_text" in row.keys() and row["question_text"] else row["question"]
         return models.ExecutiveQuestion(
             id=row["id"],

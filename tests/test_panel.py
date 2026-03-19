@@ -1,4 +1,5 @@
 import sys
+from datetime import datetime, timedelta, timezone
 
 from multi_agent_app import models
 from multi_agent_app.cli import ask_decision_panel, create_decision, create_session, main
@@ -253,3 +254,71 @@ def test_show_panel_question_command_loads_saved_case(tmp_path, capsys, monkeypa
     assert "Decision alignment assessment:" in output
     assert "Combined recommendation:" in output
     assert "Strateg:" in output
+
+
+def test_storage_list_panel_questions_returns_latest_first(tmp_path):
+    db_path = tmp_path / "panel_list_storage.db"
+
+    storage = Storage(db_path=str(db_path))
+    try:
+        session = models.Session(name="Panel List Storage")
+        storage.add_session(session)
+        earlier = datetime.now(timezone.utc) - timedelta(minutes=1)
+        later = datetime.now(timezone.utc)
+        first = models.ExecutiveQuestion(
+            question_text="First panel question for storage listing.",
+            topic="Ops",
+            session_id=session.id,
+            created_at=earlier,
+        )
+        second = models.ExecutiveQuestion(
+            question_text="Second panel question for storage listing.",
+            topic="Ops",
+            session_id=session.id,
+            created_at=later,
+        )
+        storage.add_panel_question(first)
+        storage.add_panel_question(second)
+
+        questions = storage.list_panel_questions(topic="Ops", limit=10)
+        assert len(questions) == 2
+        assert questions[0].id == second.id
+        assert questions[1].id == first.id
+        assert questions[0].status == "open"
+    finally:
+        storage.close()
+
+
+def test_list_panel_questions_command_prints_structured_rows(tmp_path, capsys, monkeypatch):
+    db_path = tmp_path / "panel_list_cli.db"
+    create_session(str(db_path), "Panel List CLI")
+    long_question = (
+        "How should we execute this cross-team rollout in detail while keeping dependencies stable "
+        "and avoiding hidden delivery risks in the next sprint?"
+    )
+    question, _, _, _, _, _, _ = ask_decision_panel(
+        db_path=str(db_path),
+        question=long_question,
+        topic="Delivery",
+    )
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "main.py",
+            "--db-path",
+            str(db_path),
+            "list-panel-questions",
+            "--topic",
+            "Delivery",
+        ],
+    )
+    main()
+    output = capsys.readouterr().out
+    assert "Panel questions: 1" in output
+    assert question.id in output
+    assert "[open]" in output
+    assert "topic=Delivery" in output
+    assert "How should we execute this cross-team rollout in detail" in output
+    assert "..." in output

@@ -655,6 +655,30 @@ def show_panel_question_case(db_path: str, question_id: str) -> dict:
         storage.close()
 
 
+def list_panel_questions(
+    db_path: str,
+    session_id: str | None = None,
+    topic: str | None = None,
+    limit: int = 20,
+) -> List[models.ExecutiveQuestion]:
+    storage = Storage(db_path=db_path)
+    try:
+        if session_id:
+            session = storage.get_session(session_id)
+            if session is None:
+                raise ValueError(f"Session '{session_id}' was not found")
+        return storage.list_panel_questions(session_id=session_id, topic=topic, limit=limit)
+    finally:
+        storage.close()
+
+
+def _truncate_question(text: str, max_length: int = 90) -> str:
+    compact = " ".join(text.strip().split())
+    if len(compact) <= max_length:
+        return compact
+    return compact[: max_length - 3].rstrip() + "..."
+
+
 def run_example_flow(
     db_path: str = "multi_agent.db",
     session_name: str = "Demo Session",
@@ -813,6 +837,13 @@ def _build_parser() -> argparse.ArgumentParser:
         "show-panel-question", help="Show a previously stored panel question and analysis."
     )
     show_panel_question_parser.add_argument("--question-id", required=True, help="Panel question id.")
+
+    list_panel_questions_parser = subparsers.add_parser(
+        "list-panel-questions", help="List previously asked panel questions."
+    )
+    list_panel_questions_parser.add_argument("--session-id", help="Optional session id filter.")
+    list_panel_questions_parser.add_argument("--topic", help="Optional topic filter.")
+    list_panel_questions_parser.add_argument("--limit", type=int, default=20, help="Maximum number of questions.")
 
     subparsers.add_parser("tui", help="Launch Textual terminal UI.")
 
@@ -1204,6 +1235,26 @@ def main() -> None:
         print(f"Analyst: {by_agent.get('analyst', '-')}")
         print(f"Operator: {by_agent.get('operator', '-')}")
         print(f"Governance: {by_agent.get('governance', '-')}")
+        return
+
+    if args.command == "list-panel-questions":
+        try:
+            questions = list_panel_questions(
+                db_path=args.db_path,
+                session_id=args.session_id,
+                topic=args.topic,
+                limit=args.limit,
+            )
+        except ValueError as exc:
+            print(f"Panel question listing failed: {exc}")
+            raise SystemExit(1) from exc
+        print(f"Panel questions: {len(questions)}")
+        for question in questions:
+            print(
+                f"- {question.id} [{question.status}] "
+                f"created_at={question.created_at.isoformat()} topic={question.topic}"
+            )
+            print(f"  {_truncate_question(question.question_text)}")
         return
 
     if args.command == "tui":
