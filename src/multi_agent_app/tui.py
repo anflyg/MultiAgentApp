@@ -18,6 +18,7 @@ class MultiAgentTUI(App[None]):
     #root { height: 1fr; }
     #left, #middle, #right { width: 1fr; padding: 1; }
     #summary { padding: 1; border: tall $accent; }
+    #recent-questions, #question-analysis, #question-recommendation, #question-status,
     #active-decisions, #open-candidates, #open-suggestions, #recent-activity, #decision-detail {
       border: round $panel;
       padding: 1;
@@ -32,6 +33,7 @@ class MultiAgentTUI(App[None]):
         super().__init__()
         self.db_path = db_path
         self._active_decision_ids: list[str] = []
+        self._recent_question_ids: list[str] = []
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
@@ -41,15 +43,24 @@ class MultiAgentTUI(App[None]):
                 yield Static("", id="summary")
                 with Horizontal(id="panel-actions"):
                     yield Button("Refresh", id="refresh", variant="primary")
+                yield Static("Latest questions", classes="section-title")
+                yield Static("", id="recent-questions")
+                yield Select([], prompt="Select question", id="question-select", allow_blank=True)
                 yield Static("Active decisions", classes="section-title")
                 yield Static("", id="active-decisions")
                 yield Select([], prompt="Select active decision", id="decision-select", allow_blank=True)
             with Vertical(id="middle"):
+                yield Static("Selected question analysis", classes="section-title")
+                yield Static("", id="question-analysis")
+                yield Static("Combined recommendation", classes="section-title")
+                yield Static("", id="question-recommendation")
+                yield Static("Decision status assessment", classes="section-title")
+                yield Static("", id="question-status")
                 yield Static("Decision detail", classes="section-title")
                 yield Static("", id="decision-detail")
+            with Vertical(id="right"):
                 yield Static("Open decision candidates", classes="section-title")
                 yield Static("", id="open-candidates")
-            with Vertical(id="right"):
                 yield Static("Open decision suggestions", classes="section-title")
                 yield Static("", id="open-suggestions")
                 yield Static("Recent activity", classes="section-title")
@@ -76,16 +87,49 @@ class MultiAgentTUI(App[None]):
             open_candidates = storage.list_open_decision_candidates()
             open_suggestions = storage.list_open_decision_suggestions()
             recent_events = storage.list_recent_session_events(limit=10)
+            recent_questions = storage.list_panel_questions(limit=10)
         finally:
             storage.close()
 
         summary_text = (
+            f"Recent questions: {len(recent_questions)}\n"
             f"Active decisions: {len(active_decisions)}\n"
             f"Open candidates: {len(open_candidates)}\n"
             f"Open suggestions: {len(open_suggestions)}\n"
             f"Recent session events: {len(recent_events)}"
         )
         self.query_one("#summary", Static).update(summary_text)
+
+        self._recent_question_ids = [question.id for question in recent_questions]
+        question_lines = []
+        for question in recent_questions:
+            summary = " ".join(question.question_text.split())
+            if len(summary) > 72:
+                summary = summary[:69].rstrip() + "..."
+            question_lines.append(
+                f"- {question.id[:8]} | {question.created_at.isoformat()} | "
+                f"{question.topic} | {question.status} | {summary}"
+            )
+        self.query_one("#recent-questions", Static).update(
+            "\n".join(question_lines) if question_lines else "No previous panel questions."
+        )
+
+        question_select = self.query_one("#question-select", Select)
+        question_options = [
+            (
+                f"{question.id[:8]} | {question.created_at.isoformat()} | {question.topic} | {question.status}",
+                question.id,
+            )
+            for question in recent_questions
+        ]
+        question_select.set_options(question_options)
+        if question_options:
+            question_select.value = question_options[0][1]
+            self._render_question_analysis(question_options[0][1])
+        else:
+            self.query_one("#question-analysis", Static).update("Select a question to inspect analysis.")
+            self.query_one("#question-recommendation", Static).update("No combined recommendation available.")
+            self.query_one("#question-status", Static).update("No decision status assessment available.")
 
         self._active_decision_ids = [decision.id for decision in active_decisions]
         decision_lines = []
@@ -173,7 +217,91 @@ class MultiAgentTUI(App[None]):
         )
         self.query_one("#decision-detail", Static).update(detail)
 
+    def _build_question_detail_texts(self, case: dict | None) -> tuple[str, str, str]:
+        if case is None:
+            return (
+                "Selected question was not found.",
+                "No combined recommendation available.",
+                "No decision status assessment available.",
+            )
+
+        question = case["question"]
+        analysis = case.get("analysis")
+        sections = case.get("sections", {}) or {}
+
+        interpretation = sections.get("question_interpretation")
+        if not interpretation and analysis is not None:
+            interpretation = analysis.assessment_reason
+
+        context_parts = []
+        relevant_context = sections.get("relevant_context", {})
+        if isinstance(relevant_context, dict):
+            active_ids = relevant_context.get("active_decision_ids", [])
+            historical_ids = relevant_context.get("historical_decision_ids", [])
+            if active_ids:
+                context_parts.append("active=" + ", ".join(active_ids))
+            if historical_ids:
+                context_parts.append("historical=" + ", ".join(historical_ids))
+        context_line = " | ".join(context_parts) if context_parts else "none"
+
+        role_lines = []
+        role_analysis = sections.get("per_role_analysis", {})
+        if isinstance(role_analysis, dict):
+            for role_name in ("strateg", "analyst", "operator", "governance"):
+                if role_name in role_analysis:
+                    role_lines.append(f"- {role_name}: {role_analysis[role_name]}")
+        tensions = sections.get("tensions", []) or []
+        tensions_text = " | ".join(tensions) if tensions else "none"
+        analysis_text = (
+            f"Question: {question.question_text}\n"
+            f"Topic: {question.topic}\n"
+            f"Status: {question.status}\n"
+            f"Interpretation: {interpretation or '-'}\n"
+            f"Relevant context: {context_line}\n"
+            f"Tensions: {tensions_text}\n"
+            f"Per-role analysis:\n"
+            + ("\n".join(role_lines) if role_lines else "- none")
+        )
+
+        combined = sections.get("combined_recommendation")
+        if not combined and analysis is not None:
+            combined = analysis.combined_recommendation
+        recommendation_text = combined or "No combined recommendation available."
+
+        status_assessment = sections.get("decision_status_assessment", {})
+        if isinstance(status_assessment, dict) and status_assessment:
+            status_text = (
+                f"alignment: {status_assessment.get('alignment', '-')}\n"
+                f"reason: {status_assessment.get('reason', '-')}\n"
+                f"likely_requires_new_decision: {status_assessment.get('likely_requires_new_decision', '-')}"
+            )
+        elif analysis is not None:
+            status_text = (
+                f"alignment: {analysis.assessment_alignment}\n"
+                f"reason: {analysis.assessment_reason}\n"
+                f"likely_requires_new_decision: {analysis.likely_requires_new_decision}"
+            )
+        else:
+            status_text = "No decision status assessment available."
+
+        return analysis_text, recommendation_text, status_text
+
+    def _render_question_analysis(self, question_id: str) -> None:
+        storage = Storage(db_path=self.db_path)
+        try:
+            case = storage.get_panel_question_case(question_id)
+        finally:
+            storage.close()
+
+        analysis_text, recommendation_text, status_text = self._build_question_detail_texts(case)
+        self.query_one("#question-analysis", Static).update(analysis_text)
+        self.query_one("#question-recommendation", Static).update(recommendation_text)
+        self.query_one("#question-status", Static).update(status_text)
+
     def on_select_changed(self, event: Select.Changed) -> None:
+        if event.select.id == "question-select" and isinstance(event.value, str) and event.value:
+            self._render_question_analysis(event.value)
+            return
         if event.select.id == "decision-select" and isinstance(event.value, str) and event.value:
             self._render_decision_detail(event.value)
 
@@ -252,6 +380,9 @@ class MultiAgentTUI(App[None]):
         output.write(f"Suggested next step: {next_step}")
         self._status("Panel response generated.")
         self._refresh_dashboard()
+        question_select = self.query_one("#question-select", Select)
+        question_select.value = panel_question.id
+        self._render_question_analysis(panel_question.id)
 
 
 def run_tui(db_path: str = "multi_agent.db") -> None:
