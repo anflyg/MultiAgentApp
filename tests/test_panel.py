@@ -2,7 +2,13 @@ import sys
 from datetime import datetime, timedelta, timezone
 
 from multi_agent_app import models
-from multi_agent_app.cli import ask_decision_panel, create_decision, create_session, main
+from multi_agent_app.cli import (
+    _build_reasoning_items_from_panel,
+    ask_decision_panel,
+    create_decision,
+    create_session,
+    main,
+)
 from multi_agent_app.panel import (
     assess_question_against_active_decisions,
     build_panel_outcome,
@@ -241,6 +247,37 @@ def test_ask_decision_panel_deviation_creates_objection_or_risk_reasoning(tmp_pa
         assert all(item.question_id == question.id for item in items)
     finally:
         storage.close()
+
+
+def test_reasoning_builder_has_fallback_for_likely_new_decision_case():
+    question = models.ExecutiveQuestion(question_text="Should we override current direction?", topic="Expansion")
+    context = {
+        "active_decisions": [
+            models.Decision(
+                session_id="S1",
+                title="Rollout policy",
+                topic="Expansion",
+                decision_text="Follow approved sequence.",
+            )
+        ]
+    }
+    assessment = models.DecisionAlignmentAssessment(
+        alignment="likely_new_decision_required",
+        reason="Question likely proposes exception against active direction.",
+        challenge_points=[],
+    )
+
+    items = _build_reasoning_items_from_panel(
+        panel_question=question,
+        context=context,
+        assessment=assessment,
+        role_analysis_outputs={},
+    )
+
+    assert len(items) >= 1
+    assert items[0].kind == "objection"
+    assert items[0].question_id == question.id
+    assert "exception" in items[0].content.lower() or "direction" in items[0].content.lower()
 
 
 def test_ask_decision_panel_with_no_decisions_still_returns_structure(tmp_path):

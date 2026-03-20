@@ -78,11 +78,16 @@ def _build_reasoning_items_from_panel(
 ) -> list[models.ReasoningItem]:
     items: list[models.ReasoningItem] = []
     primary_decision_id = context["active_decisions"][0].id if context["active_decisions"] else None
+    clean_challenge_points = [
+        " ".join(point.strip().split())
+        for point in assessment.challenge_points
+        if point and point.strip()
+    ]
 
     challenge_kind = (
         "objection" if assessment.alignment in {"potential_deviation", "likely_new_decision_required"} else "open_question"
     )
-    for point in assessment.challenge_points[:2]:
+    for point in clean_challenge_points[:2]:
         items.append(
             models.ReasoningItem(
                 question_id=panel_question.id,
@@ -125,6 +130,18 @@ def _build_reasoning_items_from_panel(
                 decision_id=primary_decision_id,
                 kind="assumption",
                 content="Panel indicates assumptions should be explicitly verified before execution.",
+                source_type="panel",
+            )
+        )
+
+    if not items and assessment.alignment in {"potential_deviation", "likely_new_decision_required"}:
+        fallback_content = clean_challenge_points[0] if clean_challenge_points else assessment.reason
+        items.append(
+            models.ReasoningItem(
+                question_id=panel_question.id,
+                decision_id=primary_decision_id,
+                kind="objection",
+                content=fallback_content,
                 source_type="panel",
             )
         )
