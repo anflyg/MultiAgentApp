@@ -25,6 +25,7 @@ _AUTO_LINKABLE_SUGGESTIONS = {
     "related_decision": "supplements",
     "possible_supersedes": "supersedes",
 }
+_DECISION_DRAFT_MODES = {"potential_deviation", "likely_new_decision_required"}
 
 
 def _add_suggestion_event(
@@ -157,6 +158,66 @@ def _build_reasoning_items_from_panel(
         if len(deduped) >= max_items:
             break
     return deduped
+
+
+def _build_decision_candidate_draft(
+    *,
+    question_text: str,
+    topic: str,
+    decision_mode: str | None,
+    assessment_reason: str,
+    challenge_points: list[str],
+    formal_next_step: str,
+    suggested_next_step_text: str,
+    active_decision_ids: list[str],
+    open_candidate_ids: list[str] | None = None,
+) -> dict[str, str] | None:
+    if decision_mode not in _DECISION_DRAFT_MODES:
+        return None
+
+    mode_label = (
+        "exception/deviation" if decision_mode == "potential_deviation" else "new governing decision"
+    )
+    active_scope = ", ".join(active_decision_ids) if active_decision_ids else "none"
+    clean_points = [
+        " ".join(point.strip().split())
+        for point in challenge_points
+        if point and point.strip()
+    ]
+    key_challenge = clean_points[0] if clean_points else assessment_reason
+    open_ids = ", ".join(open_candidate_ids or []) if open_candidate_ids else "none"
+
+    return {
+        "title": f"{topic}: decision update from panel question",
+        "topic": topic,
+        "candidate_text": (
+            f"Question requires {mode_label}. "
+            f"Define explicit decision scope before execution changes. "
+            f"Question reference: {question_text}"
+        ),
+        "rationale": (
+            f"Panel assessment: {assessment_reason} "
+            f"| Active decision context: {active_scope} "
+            f"| Key challenge: {key_challenge}"
+        ),
+        "manual_next_step": (
+            f"Manual action: review open candidates for topic ({open_ids}); "
+            f"if unresolved, create decision candidate with this draft. "
+            f"Formal next step: {formal_next_step} "
+            f"| Suggested next step: {suggested_next_step_text}"
+        ),
+    }
+
+
+def _print_decision_candidate_draft(draft: dict[str, str] | None) -> None:
+    if draft is None:
+        return
+    print("Decision candidate draft (manual):")
+    print(f"- title: {draft['title']}")
+    print(f"- topic: {draft['topic']}")
+    print(f"- text: {draft['candidate_text']}")
+    print(f"- rationale: {draft['rationale']}")
+    print(f"- next: {draft['manual_next_step']}")
 
 
 def create_session(db_path: str, session_name: str) -> models.Session:
@@ -1346,6 +1407,18 @@ def main() -> None:
         outcome = build_panel_outcome(context, assessment)
         print(f"Decision status mode: {outcome.decision_mode}")
         print(f"Formal next step: {outcome.formal_next_step}")
+        draft = _build_decision_candidate_draft(
+            question_text=panel_question.question_text,
+            topic=panel_question.topic,
+            decision_mode=outcome.decision_mode,
+            assessment_reason=assessment.reason,
+            challenge_points=assessment.challenge_points,
+            formal_next_step=outcome.formal_next_step,
+            suggested_next_step_text=next_step,
+            active_decision_ids=[decision.id for decision in context["active_decisions"]],
+            open_candidate_ids=[candidate.id for candidate in context["open_candidates"]],
+        )
+        _print_decision_candidate_draft(draft)
         print("Challenge points:")
         if assessment.challenge_points:
             for point in assessment.challenge_points:
@@ -1386,12 +1459,24 @@ def main() -> None:
         )
         if analysis is not None:
             assessment_payload = analysis.decision_status_assessment or {}
+            formal_next_step_text = assessment_payload.get("formal_next_step", analysis.suggested_next_step)
             print(
                 f"Decision alignment assessment: "
                 f"{analysis.assessment_alignment} ({analysis.assessment_reason})"
             )
             print(f"Decision status mode: {assessment_payload.get('decision_mode', '-')}")
-            print(f"Formal next step: {assessment_payload.get('formal_next_step', analysis.suggested_next_step)}")
+            print(f"Formal next step: {formal_next_step_text}")
+            draft = _build_decision_candidate_draft(
+                question_text=question.question_text,
+                topic=question.topic,
+                decision_mode=assessment_payload.get("decision_mode"),
+                assessment_reason=analysis.assessment_reason,
+                challenge_points=analysis.challenge_points,
+                formal_next_step=formal_next_step_text,
+                suggested_next_step_text=analysis.suggested_next_step,
+                active_decision_ids=context_decision_ids,
+            )
+            _print_decision_candidate_draft(draft)
             print(
                 "Challenge points: "
                 + (" | ".join(analysis.challenge_points) if analysis.challenge_points else "none")

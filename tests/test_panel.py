@@ -430,6 +430,70 @@ def test_show_panel_question_command_loads_saved_case(tmp_path, capsys, monkeypa
     assert "Reasoning items:" in output
 
 
+def test_panel_cli_outputs_manual_candidate_draft_for_new_decision_case(tmp_path, capsys, monkeypatch):
+    db_path = tmp_path / "panel_cli_candidate_draft.db"
+    session = create_session(str(db_path), "Panel Candidate Draft")
+    create_decision(
+        str(db_path),
+        session.id,
+        "Nordic sequencing",
+        "Expansion",
+        "Open Denmark only after Norway is stable.",
+    )
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "main.py",
+            "--db-path",
+            str(db_path),
+            "ask-decision-panel",
+            "--question",
+            "Ska vi öppna Danmark ändå trots att Norge är försenat?",
+            "--topic",
+            "Expansion",
+        ],
+    )
+    main()
+    output = capsys.readouterr().out
+    assert "Decision status mode: likely_new_decision_required" in output
+    assert "Decision candidate draft (manual):" in output
+    assert "title: Expansion: decision update from panel question" in output
+    assert "Manual action:" in output
+
+
+def test_show_panel_question_outputs_manual_candidate_draft_for_deviation_case(
+    tmp_path, capsys, monkeypatch
+):
+    db_path = tmp_path / "panel_show_candidate_draft.db"
+    session = create_session(str(db_path), "Panel Show Candidate Draft")
+    create_decision(str(db_path), session.id, "Direction", "Ops", "Keep weekly release cadence.")
+
+    question, _, _, _, _, _, _ = ask_decision_panel(
+        db_path=str(db_path),
+        question="Kan vi byta riktning och pausa release till nästa kvartal?",
+        topic="Ops",
+    )
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "main.py",
+            "--db-path",
+            str(db_path),
+            "show-panel-question",
+            "--question-id",
+            question.id,
+        ],
+    )
+    main()
+    output = capsys.readouterr().out
+    assert "Decision status mode: potential_deviation" in output
+    assert "Decision candidate draft (manual):" in output
+    assert "title: Ops: decision update from panel question" in output
+
+
 def test_storage_list_panel_questions_returns_latest_first(tmp_path):
     db_path = tmp_path / "panel_list_storage.db"
 
