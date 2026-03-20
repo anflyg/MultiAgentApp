@@ -304,6 +304,13 @@ class MultiAgentTUI(App[None]):
                     role_lines.append(f"- {role_name}: {role_analysis[role_name]}")
         tensions = sections.get("tensions", []) or []
         tensions_text = " | ".join(tensions) if tensions else "none"
+        reasoning_items = case.get("reasoning_items", []) or []
+        reasoning_lines = []
+        for item in reasoning_items[:4]:
+            content = " ".join(item.content.split())
+            if len(content) > 88:
+                content = content[:85].rstrip() + "..."
+            reasoning_lines.append(f"- [{item.kind}] ({item.source_type}) {content}")
         analysis_text = (
             f"Question: {question.question_text}\n"
             f"Topic: {question.topic}\n"
@@ -313,6 +320,8 @@ class MultiAgentTUI(App[None]):
             f"Tensions: {tensions_text}\n"
             f"Per-role analysis:\n"
             + ("\n".join(role_lines) if role_lines else "- none")
+            + "\nReasoning items:\n"
+            + ("\n".join(reasoning_lines) if reasoning_lines else "- none")
         )
 
         combined = sections.get("combined_recommendation")

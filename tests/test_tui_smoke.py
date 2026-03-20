@@ -53,11 +53,21 @@ def test_tui_build_question_detail_texts_uses_sections_when_available():
                 "likely_requires_new_decision": "probably",
             },
         },
+        "reasoning_items": [
+            models.ReasoningItem(
+                question_id="Q1",
+                kind="risk",
+                content="Timeline may slip due to dependency sequencing.",
+                source_type="panel",
+            ),
+        ],
     }
     analysis_text, recommendation_text, status_text = app._build_question_detail_texts(case)
     assert "Interpretation: Execution clarification under current direction." in analysis_text
     assert "Per-role analysis:" in analysis_text
     assert "strateg: Stay aligned." in analysis_text
+    assert "Reasoning items:" in analysis_text
+    assert "[risk] (panel) Timeline may slip due to dependency sequencing." in analysis_text
     assert recommendation_text == "Proceed with staged rollout."
     assert "alignment: clarification_needed" in status_text
     assert "likely_requires_new_decision: probably" in status_text

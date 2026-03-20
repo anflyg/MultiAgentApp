@@ -908,6 +908,7 @@ class Storage:
             "context_decision_ids": self.list_panel_question_context_decision_ids(question_id),
             "responses": self.list_panel_responses(question_id),
             "sections": self.get_panel_question_sections(question_id),
+            "reasoning_items": self.list_reasoning_items_for_question(question_id),
         }
 
     def get_panel_question_sections(self, question_id: str) -> dict:

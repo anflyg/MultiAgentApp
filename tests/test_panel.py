@@ -390,6 +390,7 @@ def test_show_panel_question_command_loads_saved_case(tmp_path, capsys, monkeypa
     assert "Decision alignment assessment:" in output
     assert "Combined recommendation:" in output
     assert "Strateg:" in output
+    assert "Reasoning items:" in output
 
 
 def test_storage_list_panel_questions_returns_latest_first(tmp_path):

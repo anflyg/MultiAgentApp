@@ -1357,6 +1357,7 @@ def main() -> None:
         analysis = case["analysis"]
         responses = case["responses"]
         context_decision_ids = case["context_decision_ids"]
+        reasoning_items = case.get("reasoning_items", [])
         by_agent = {response.agent_name: response.response_text for response in responses}
 
         print(f"Question: {question.question_text}")
@@ -1391,6 +1392,10 @@ def main() -> None:
         print(f"Analyst: {by_agent.get('analyst', '-')}")
         print(f"Operator: {by_agent.get('operator', '-')}")
         print(f"Governance: {by_agent.get('governance', '-')}")
+        print(f"Reasoning items: {len(reasoning_items)}")
+        for item in reasoning_items:
+            print(f"- [{item.kind}] source={item.source_type}")
+            print(f"  {item.content}")
         return
 
     if args.command == "list-panel-questions":
