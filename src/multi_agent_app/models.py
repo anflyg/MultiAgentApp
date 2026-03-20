@@ -158,6 +158,7 @@ class ReasoningItem(BaseModel):
     kind: Literal["risk", "objection", "assumption", "rationale", "open_question"]
     content: str
     source_type: Literal["panel", "system", "operator", "agent", "manual"] = "system"
+    memory_level: Literal["transient", "private_context", "formal_decision"] = "private_context"
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 

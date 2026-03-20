@@ -140,6 +140,7 @@ class Storage:
                 kind TEXT NOT NULL,
                 content TEXT NOT NULL,
                 source_type TEXT NOT NULL DEFAULT 'system',
+                memory_level TEXT NOT NULL DEFAULT 'private_context',
                 created_at TEXT NOT NULL,
                 FOREIGN KEY(decision_id) REFERENCES decisions(id),
                 FOREIGN KEY(question_id) REFERENCES panel_questions(id)
@@ -214,6 +215,9 @@ class Storage:
         self._ensure_column("decision_candidates", "owner", "TEXT")
         self._ensure_column("decision_candidates", "tags", "TEXT NOT NULL DEFAULT '[]'")
         self._ensure_column("reasoning_items", "source_type", "TEXT NOT NULL DEFAULT 'system'")
+        self._ensure_column(
+            "reasoning_items", "memory_level", "TEXT NOT NULL DEFAULT 'private_context'"
+        )
         self._ensure_column("panel_questions", "question_text", "TEXT")
         self._ensure_column("panel_questions", "status", "TEXT NOT NULL DEFAULT 'open'")
         self._ensure_column("panel_question_analyses", "question_interpretation", "TEXT")
@@ -437,8 +441,8 @@ class Storage:
         self._conn.execute(
             """
             INSERT OR REPLACE INTO reasoning_items (
-                id, decision_id, question_id, kind, content, source_type, created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                id, decision_id, question_id, kind, content, source_type, memory_level, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 item.id,
@@ -447,6 +451,7 @@ class Storage:
                 item.kind,
                 item.content,
                 item.source_type,
+                item.memory_level,
                 _to_iso(item.created_at),
             ),
         )
@@ -482,6 +487,11 @@ class Storage:
             kind=row["kind"],
             content=row["content"],
             source_type=row["source_type"] if "source_type" in row.keys() and row["source_type"] else "system",
+            memory_level=(
+                row["memory_level"]
+                if "memory_level" in row.keys() and row["memory_level"]
+                else "private_context"
+            ),
             created_at=_from_iso(row["created_at"]),
         )
 

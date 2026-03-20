@@ -241,6 +241,7 @@ def test_storage_add_and_list_reasoning_items_for_decision_and_question():
             kind="risk",
             content="Fast rollout can increase incident risk.",
             source_type="panel",
+            memory_level="formal_decision",
         )
     )
     storage.add_reasoning_item(
@@ -249,6 +250,7 @@ def test_storage_add_and_list_reasoning_items_for_decision_and_question():
             kind="open_question",
             content="Do we have enough on-call coverage this week?",
             source_type="operator",
+            memory_level="transient",
         )
     )
 
@@ -258,10 +260,12 @@ def test_storage_add_and_list_reasoning_items_for_decision_and_question():
     assert len(decision_items) == 1
     assert decision_items[0].kind == "risk"
     assert decision_items[0].source_type == "panel"
+    assert decision_items[0].memory_level == "formal_decision"
 
     assert len(question_items) == 1
     assert question_items[0].kind == "open_question"
     assert question_items[0].source_type == "operator"
+    assert question_items[0].memory_level == "transient"
     storage.close()
 
 
@@ -276,5 +280,50 @@ def test_storage_reasoning_item_requires_decision_or_question_reference():
                     source_type="system",
                 )
             )
+    finally:
+        storage.close()
+
+
+def test_storage_reasoning_items_migrate_memory_level_default(tmp_path):
+    db_path = tmp_path / "legacy_reasoning_visibility.db"
+    conn = sqlite3.connect(db_path)
+    try:
+        conn.executescript(
+            """
+            CREATE TABLE reasoning_items (
+                id TEXT PRIMARY KEY,
+                decision_id TEXT,
+                question_id TEXT,
+                kind TEXT NOT NULL,
+                content TEXT NOT NULL,
+                source_type TEXT NOT NULL DEFAULT 'system',
+                created_at TEXT NOT NULL
+            );
+            """
+        )
+        conn.execute(
+            """
+            INSERT INTO reasoning_items (id, decision_id, question_id, kind, content, source_type, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                str(uuid4()),
+                None,
+                "Q-legacy",
+                "open_question",
+                "Legacy reasoning without explicit visibility.",
+                "system",
+                datetime.now(timezone.utc).isoformat(),
+            ),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    storage = Storage(db_path=str(db_path))
+    try:
+        items = storage.list_reasoning_items_for_question("Q-legacy")
+        assert len(items) == 1
+        assert items[0].memory_level == "private_context"
     finally:
         storage.close()

@@ -310,7 +310,9 @@ class MultiAgentTUI(App[None]):
             content = " ".join(item.content.split())
             if len(content) > 88:
                 content = content[:85].rstrip() + "..."
-            reasoning_lines.append(f"- [{item.kind}] ({item.source_type}) {content}")
+            reasoning_lines.append(
+                f"- [{item.kind}] ({item.source_type}/{item.memory_level}) {content}"
+            )
         analysis_text = (
             f"Question: {question.question_text}\n"
             f"Topic: {question.topic}\n"

@@ -67,7 +67,7 @@ def test_tui_build_question_detail_texts_uses_sections_when_available():
     assert "Per-role analysis:" in analysis_text
     assert "strateg: Stay aligned." in analysis_text
     assert "Reasoning items:" in analysis_text
-    assert "[risk] (panel) Timeline may slip due to dependency sequencing." in analysis_text
+    assert "[risk] (panel/private_context) Timeline may slip due to dependency sequencing." in analysis_text
     assert recommendation_text == "Proceed with staged rollout."
     assert "alignment: clarification_needed" in status_text
     assert "likely_requires_new_decision: probably" in status_text

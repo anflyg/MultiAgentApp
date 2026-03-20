@@ -60,14 +60,30 @@ def _default_agents() -> Dict[str, BaseAgent]:
     }
 
 
-def _reasoning_signature(item: models.ReasoningItem) -> tuple[str | None, str | None, str, str, str]:
+def _reasoning_signature(
+    item: models.ReasoningItem,
+) -> tuple[str | None, str | None, str, str, str, str]:
     return (
         item.decision_id,
         item.question_id,
         item.kind,
         " ".join(item.content.strip().split()),
         item.source_type,
+        item.memory_level,
     )
+
+
+def _panel_reasoning_memory_level(
+    *,
+    kind: str,
+    decision_id: str | None,
+    alignment: str,
+) -> str:
+    if kind == "open_question" and decision_id is None:
+        return "transient"
+    if alignment == "aligned" and decision_id and kind in {"rationale", "assumption"}:
+        return "formal_decision"
+    return "private_context"
 
 
 def _build_reasoning_items_from_panel(
@@ -96,6 +112,11 @@ def _build_reasoning_items_from_panel(
                 kind=challenge_kind,
                 content=point,
                 source_type="panel",
+                memory_level=_panel_reasoning_memory_level(
+                    kind=challenge_kind,
+                    decision_id=primary_decision_id if challenge_kind == "objection" else None,
+                    alignment=assessment.alignment,
+                ),
             )
         )
 
@@ -108,6 +129,11 @@ def _build_reasoning_items_from_panel(
                 kind="risk",
                 content=analyst_text,
                 source_type="panel",
+                memory_level=_panel_reasoning_memory_level(
+                    kind="risk",
+                    decision_id=primary_decision_id,
+                    alignment=assessment.alignment,
+                ),
             )
         )
 
@@ -120,6 +146,11 @@ def _build_reasoning_items_from_panel(
                 kind="rationale",
                 content=strateg_text,
                 source_type="panel",
+                memory_level=_panel_reasoning_memory_level(
+                    kind="rationale",
+                    decision_id=primary_decision_id,
+                    alignment=assessment.alignment,
+                ),
             )
         )
 
@@ -132,6 +163,11 @@ def _build_reasoning_items_from_panel(
                 kind="assumption",
                 content="Panel indicates assumptions should be explicitly verified before execution.",
                 source_type="panel",
+                memory_level=_panel_reasoning_memory_level(
+                    kind="assumption",
+                    decision_id=primary_decision_id,
+                    alignment=assessment.alignment,
+                ),
             )
         )
 
@@ -144,6 +180,11 @@ def _build_reasoning_items_from_panel(
                 kind="objection",
                 content=fallback_content,
                 source_type="panel",
+                memory_level=_panel_reasoning_memory_level(
+                    kind="objection",
+                    decision_id=primary_decision_id,
+                    alignment=assessment.alignment,
+                ),
             )
         )
 
@@ -1291,7 +1332,7 @@ def main() -> None:
         print(f"Reasoning items: {len(reasoning_items)}")
         for item in reasoning_items:
             print(
-                f"- {item.id} [{item.kind}] source={item.source_type} "
+                f"- {item.id} [{item.kind}] source={item.source_type} visibility={item.memory_level} "
                 f"question={item.question_id or '-'}"
             )
             print(f"  {item.content}")
@@ -1496,7 +1537,7 @@ def main() -> None:
         print(f"Governance: {by_agent.get('governance', '-')}")
         print(f"Reasoning items: {len(reasoning_items)}")
         for item in reasoning_items:
-            print(f"- [{item.kind}] source={item.source_type}")
+            print(f"- [{item.kind}] source={item.source_type} visibility={item.memory_level}")
             print(f"  {item.content}")
         return
 

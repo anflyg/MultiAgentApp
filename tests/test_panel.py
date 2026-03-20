@@ -182,6 +182,10 @@ def test_ask_decision_panel_with_relevant_decisions_stores_question_and_response
         assert all(item.question_id == question.id for item in reasoning_items)
         assert all(item.source_type == "panel" for item in reasoning_items)
         assert all(
+            item.memory_level in {"transient", "private_context", "formal_decision"}
+            for item in reasoning_items
+        )
+        assert all(
             item.kind in {"open_question", "objection", "risk", "rationale", "assumption"}
             for item in reasoning_items
         )
