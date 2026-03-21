@@ -7,6 +7,7 @@ En enkel lokal multi-agent-app med Pydantic-modeller, SQLite-persistence och en 
 1. Aktivera venv (fran projektroten):
    - macOS/Linux: `source .venv/bin/activate`
    - Windows (PowerShell): `.venv\\Scripts\\Activate.ps1`
+   - Om `python` inte finns i PATH: anvand `python3` eller `.venv/bin/python`.
 2. Uppgradera pip (frivilligt men rekommenderas): `python -m pip install --upgrade pip`
 3. Installera beroenden: `pip install -r requirements.txt`
 
@@ -41,18 +42,18 @@ For snabb forsta anvandning: se [USER_GUIDE.md](USER_GUIDE.md).
 
 - Starta TUI via CLI:
   - `python src/main.py tui --db-path multi_agent.db`
-- Alternativt direkt:
-  - `python -m multi_agent_app.tui --db-path multi_agent.db`
+- Alternativt direkt (om du vill köra modulen):
+  - `PYTHONPATH=src python -m multi_agent_app.tui --db-path multi_agent.db`
 
 Dashboarden visar vid start:
 - summary/metrics:
   - active decisions
-  - open decision candidates
-  - open decision suggestions
+  - pending decision candidates
+  - pending decision suggestions
   - senaste session-events (senaste 10)
 - active decisions-lista
-- open decision candidates
-- open decision suggestions
+- pending decision candidates
+- pending decision suggestions
 - recent activity
 - decision detail-panel for vald aktivt beslut (inklusive inkommande/utgaende links)
 - ask-panel-sektion (topic + question) som kor befintlig decision-panel-logik

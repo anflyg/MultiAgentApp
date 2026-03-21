@@ -13,6 +13,7 @@ MultiAgentApp ar ett beslutsstod med:
 1. Aktivera venv och installera beroenden:
    - `source .venv/bin/activate`
    - `pip install -r requirements.txt`
+   - Om `python` inte finns i PATH: anvand `python3` eller `.venv/bin/python`.
 2. Skapa demo-data + forsta panelresultat:
    - `python src/main.py --db-path alpha_demo.db alpha-demo-setup`
 3. Visa sparad fraga:
@@ -48,3 +49,7 @@ I både CLI och TUI:
 - Heuristiska regler, ingen full AI-beslutsmotor.
 - Ingen automatisk beslutsskapning (anvandaren behaller kontroll).
 - Ingen webb-UI i alfa (CLI + TUI).
+
+## Innan du markerar alfa klar
+
+- Kör checklistan i `ALPHA_CHECKLIST.md` som slutlig go/no-go.

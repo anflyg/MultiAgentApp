@@ -142,8 +142,8 @@ class MultiAgentTUI(App[None]):
         summary_text = (
             f"Recent questions: {len(recent_questions)}\n"
             f"Active decisions: {len(active_decisions)}\n"
-            f"Open candidates: {len(open_candidates)}\n"
-            f"Open suggestions: {len(open_suggestions)}\n"
+            f"Pending candidates: {len(open_candidates)}\n"
+            f"Pending suggestions: {len(open_suggestions)}\n"
             f"Recent session events: {len(recent_events)}"
         )
         self.query_one("#summary", Static).update(summary_text)
