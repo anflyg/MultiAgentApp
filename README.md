@@ -68,6 +68,18 @@ I denna iteration sker fortfarande skapande/hantering via CLI:
 - create/accept/dismiss av suggestions
 - explicita link-operations
 
+## Valfritt LLM-providerlage (grund)
+
+Panelen kor heuristiskt som standard. Ett litet provider-lager finns nu som grund for framtida riktiga modellanrop.
+
+- Standard utan API-nyckel: heuristisk panel (ingen extern modell kravs).
+- Forberedd OpenAI-provider:
+  - `export MULTI_AGENT_APP_LLM_PROVIDER=openai`
+  - `export OPENAI_API_KEY=<din_nyckel>`
+  - valfritt: `export OPENAI_MODEL=gpt-4o-mini`
+
+Om provider inte ar tillganglig (t.ex. saknad nyckel eller timeout) faller panelen automatiskt tillbaka till heuristik.
+
 ## Snabb demo fran tomt lage
 
 1. Skapa demo-data och forsta panelresultat:

@@ -5,6 +5,7 @@ __all__ = [
     "models",
     "storage",
     "orchestrator",
+    "llm",
     "cli",
     "tui",
 ]

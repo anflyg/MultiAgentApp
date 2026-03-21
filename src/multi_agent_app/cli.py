@@ -7,6 +7,7 @@ from typing import Dict, List
 
 from . import models
 from .agents import BaseAgent, PlannerAgent, ReviewerAgent, WriterAgent
+from .llm import LLMProvider, apply_role_llm_overrides, provider_from_env
 from .orchestrator import OrchestrationError, Orchestrator
 from .panel import (
     active_advisor_roles,
@@ -855,7 +856,11 @@ def dismiss_decision_suggestion(db_path: str, suggestion_id: str) -> models.Deci
 
 
 def ask_decision_panel(
-    db_path: str, question: str, topic: str, session_id: str | None = None
+    db_path: str,
+    question: str,
+    topic: str,
+    session_id: str | None = None,
+    llm_provider: LLMProvider | None = None,
 ) -> tuple[
     models.ExecutiveQuestion,
     dict,
@@ -890,11 +895,20 @@ def ask_decision_panel(
         )
 
         roles = active_advisor_roles(default_advisor_roles())
-        role_analysis_outputs = per_role_analysis(
+        heuristic_role_outputs = per_role_analysis(
             question=normalized_question,
             context=context,
             assessment=assessment,
             roles=roles,
+        )
+        resolved_provider = llm_provider or provider_from_env()
+        role_analysis_outputs = apply_role_llm_overrides(
+            provider=resolved_provider,
+            roles=roles,
+            question=normalized_question,
+            context=context,
+            assessment=assessment,
+            heuristic_outputs=heuristic_role_outputs,
         )
         responses = [
                 models.PanelResponse(

@@ -1,0 +1,88 @@
+from __future__ import annotations
+
+from multi_agent_app import models
+from multi_agent_app.cli import ask_decision_panel, create_decision, create_session
+from multi_agent_app.llm import NullLLMProvider, apply_role_llm_overrides, provider_from_env
+from multi_agent_app.panel import default_advisor_roles
+
+
+class _FakeProvider:
+    name = "fake"
+
+    def __init__(self) -> None:
+        self.calls: list[str] = []
+
+    def is_available(self) -> bool:
+        return True
+
+    def generate_role_response(
+        self,
+        *,
+        role: models.AdvisorRole,
+        question: str,
+        context: dict[str, object],
+        assessment: models.DecisionAlignmentAssessment,
+        fallback_response: str,
+    ) -> str | None:
+        self.calls.append(role.name)
+        return f"{role.name.upper()} (LLM): {fallback_response}"
+
+
+def test_provider_from_env_defaults_to_heuristic(monkeypatch):
+    monkeypatch.delenv("MULTI_AGENT_APP_LLM_PROVIDER", raising=False)
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+
+    provider = provider_from_env()
+    assert provider.name == "heuristic"
+    assert provider.is_available() is False
+
+
+def test_provider_from_env_openai_without_key_is_unavailable(monkeypatch):
+    monkeypatch.setenv("MULTI_AGENT_APP_LLM_PROVIDER", "openai")
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+
+    provider = provider_from_env()
+    assert provider.name == "openai"
+    assert provider.is_available() is False
+
+
+def test_apply_role_llm_overrides_keeps_heuristics_when_provider_disabled():
+    roles = default_advisor_roles()
+    assessment = models.DecisionAlignmentAssessment(
+        alignment="clarification_needed",
+        reason="Needs clarification.",
+    )
+    heuristic_outputs = {role.name: f"{role.name}-heuristic" for role in roles}
+    context = {
+        "active_decisions": [],
+        "historical_decisions": [],
+        "open_candidates": [],
+        "open_suggestions": [],
+        "decision_links": [],
+    }
+    output = apply_role_llm_overrides(
+        provider=NullLLMProvider(),
+        roles=roles,
+        question="How should we proceed?",
+        context=context,
+        assessment=assessment,
+        heuristic_outputs=heuristic_outputs,
+    )
+    assert output == heuristic_outputs
+
+
+def test_ask_decision_panel_accepts_provider_and_overrides_role_text(tmp_path):
+    db_path = tmp_path / "panel_llm_provider.db"
+    session = create_session(str(db_path), "Panel LLM Provider")
+    create_decision(str(db_path), session.id, "Direction", "Ops", "Keep weekly release cadence.")
+
+    provider = _FakeProvider()
+    _, _, _, responses, _, _, _ = ask_decision_panel(
+        db_path=str(db_path),
+        question="How should we run this change?",
+        topic="Ops",
+        llm_provider=provider,
+    )
+    assert len(responses) == 4
+    assert set(provider.calls) == {"strateg", "analyst", "operator", "governance"}
+    assert all("(LLM):" in response.response_text for response in responses)
