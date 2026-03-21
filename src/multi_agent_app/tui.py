@@ -313,13 +313,45 @@ class MultiAgentTUI(App[None]):
         tensions = sections.get("tensions", []) or []
         tensions_text = " | ".join(tensions) if tensions else "none"
         reasoning_items = case.get("reasoning_items", []) or []
+        kind_priority = {
+            "objection": 0,
+            "risk": 1,
+            "open_question": 2,
+            "assumption": 3,
+            "rationale": 4,
+        }
+        kind_labels = {
+            "objection": "Critical objection",
+            "risk": "Risk signal",
+            "open_question": "Open question",
+            "assumption": "Assumption to verify",
+            "rationale": "Supporting rationale",
+        }
+        source_labels = {
+            "panel": "panel analysis",
+            "system": "system memory",
+            "operator": "operator input",
+            "agent": "agent input",
+            "manual": "manual note",
+        }
+        visibility_labels = {
+            "transient": "temporary context",
+            "private_context": "private context",
+            "formal_decision": "formal decision context",
+        }
         reasoning_lines = []
-        for item in reasoning_items[:4]:
+        for item in sorted(
+            reasoning_items,
+            key=lambda x: (kind_priority.get(x.kind, 99), x.created_at),
+        )[:4]:
             content = " ".join(item.content.split())
             if len(content) > 88:
                 content = content[:85].rstrip() + "..."
+            kind_label = kind_labels.get(item.kind, item.kind.replace("_", " "))
+            source_label = source_labels.get(item.source_type, item.source_type)
+            visibility_label = visibility_labels.get(item.memory_level, item.memory_level)
             reasoning_lines.append(
-                f"- [{item.kind}] ({item.source_type}/{item.memory_level}) {content}"
+                f"- {kind_label}: {content} ({source_label}; {visibility_label})"
             )
         if not signal_parts:
             signal_parts = ["active=0", "historical=0", "open_candidates=0", "open_suggestions=0"]

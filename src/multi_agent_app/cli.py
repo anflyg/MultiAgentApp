@@ -27,6 +27,32 @@ _AUTO_LINKABLE_SUGGESTIONS = {
     "possible_supersedes": "supersedes",
 }
 _DECISION_DRAFT_MODES = {"potential_deviation", "likely_new_decision_required"}
+_REASONING_KIND_PRIORITY = {
+    "objection": 0,
+    "risk": 1,
+    "open_question": 2,
+    "assumption": 3,
+    "rationale": 4,
+}
+_REASONING_KIND_LABEL = {
+    "objection": "Critical objection",
+    "risk": "Risk signal",
+    "open_question": "Open question",
+    "assumption": "Assumption to verify",
+    "rationale": "Supporting rationale",
+}
+_REASONING_SOURCE_LABEL = {
+    "panel": "panel analysis",
+    "system": "system memory",
+    "operator": "operator input",
+    "agent": "agent input",
+    "manual": "manual note",
+}
+_REASONING_VISIBILITY_LABEL = {
+    "transient": "temporary context",
+    "private_context": "private context",
+    "formal_decision": "formal decision context",
+}
 
 
 def _add_suggestion_event(
@@ -274,13 +300,40 @@ def _context_signal_line(context: dict) -> str:
 def _reasoning_signal_line(reasoning_items: list[models.ReasoningItem]) -> str:
     if not reasoning_items:
         return "none"
-    kind_counts = Counter(item.kind for item in reasoning_items)
-    visibility_counts = Counter(item.memory_level for item in reasoning_items)
-    kind_part = ", ".join(f"{kind}={count}" for kind, count in sorted(kind_counts.items()))
+    kind_counts = Counter(_REASONING_KIND_LABEL.get(item.kind, item.kind) for item in reasoning_items)
+    visibility_counts = Counter(
+        _REASONING_VISIBILITY_LABEL.get(item.memory_level, item.memory_level)
+        for item in reasoning_items
+    )
+    kind_part = ", ".join(f"{kind} ({count})" for kind, count in sorted(kind_counts.items()))
     visibility_part = ", ".join(
-        f"{level}={count}" for level, count in sorted(visibility_counts.items())
+        f"{level} ({count})" for level, count in sorted(visibility_counts.items())
     )
     return f"total={len(reasoning_items)} | kinds: {kind_part} | visibility: {visibility_part}"
+
+
+def _sorted_reasoning_items(reasoning_items: list[models.ReasoningItem]) -> list[models.ReasoningItem]:
+    return sorted(
+        reasoning_items,
+        key=lambda item: (
+            _REASONING_KIND_PRIORITY.get(item.kind, 99),
+            item.created_at,
+        ),
+    )
+
+
+def _print_reasoning_item(item: models.ReasoningItem, include_question: bool = False) -> None:
+    kind_label = _REASONING_KIND_LABEL.get(item.kind, item.kind.replace("_", " "))
+    source_label = _REASONING_SOURCE_LABEL.get(item.source_type, item.source_type)
+    visibility_label = _REASONING_VISIBILITY_LABEL.get(item.memory_level, item.memory_level)
+    content = " ".join(item.content.split())
+    print(f"- {kind_label}: {content}")
+    meta = [source_label, visibility_label]
+    if include_question and item.question_id:
+        meta.append(f"question {item.question_id[:8]}")
+    if item.decision_id:
+        meta.append(f"decision {item.decision_id[:8]}")
+    print("  " + " | ".join(meta))
 
 
 def create_session(db_path: str, session_name: str) -> models.Session:
@@ -1357,12 +1410,8 @@ def main() -> None:
         print(f"Consequences: {decision.consequences or '-'}")
         print(f"Follow-up notes: {decision.follow_up_notes or '-'}")
         print(f"Reasoning items: {len(reasoning_items)}")
-        for item in reasoning_items:
-            print(
-                f"- {item.id} [{item.kind}] source={item.source_type} visibility={item.memory_level} "
-                f"question={item.question_id or '-'}"
-            )
-            print(f"  {item.content}")
+        for item in _sorted_reasoning_items(reasoning_items):
+            _print_reasoning_item(item, include_question=True)
         print(f"Outgoing links: {len(outgoing_links)}")
         for link in outgoing_links:
             print(f"- {link.id} [{link.relation_type}] {link.from_decision_id} -> {link.to_decision_id}")
@@ -1599,10 +1648,9 @@ def main() -> None:
         print(f"Operator: {by_agent.get('operator', '-')}")
         print(f"Governance: {by_agent.get('governance', '-')}")
         print(f"Reasoning items: {len(reasoning_items)}")
-        print(f"Reasoning memory signals: {_reasoning_signal_line(reasoning_items)}")
-        for item in reasoning_items:
-            print(f"- [{item.kind}] source={item.source_type} visibility={item.memory_level}")
-            print(f"  {item.content}")
+        print(f"Reasoning overview: {_reasoning_signal_line(reasoning_items)}")
+        for item in _sorted_reasoning_items(reasoning_items):
+            _print_reasoning_item(item)
         return
 
     if args.command == "list-panel-questions":

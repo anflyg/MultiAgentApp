@@ -530,7 +530,7 @@ def test_show_panel_question_command_loads_saved_case(tmp_path, capsys, monkeypa
     assert "Combined recommendation:" in output
     assert "Strateg:" in output
     assert "Reasoning items:" in output
-    assert "Reasoning memory signals:" in output
+    assert "Reasoning overview:" in output
 
 
 def test_panel_cli_outputs_manual_candidate_draft_for_new_decision_case(tmp_path, capsys, monkeypatch):
