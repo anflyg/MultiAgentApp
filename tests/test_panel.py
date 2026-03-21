@@ -13,6 +13,7 @@ from multi_agent_app.panel import (
     assess_question_against_active_decisions,
     build_panel_outcome,
     build_context_packet,
+    combined_recommendation,
     default_advisor_roles,
     per_role_analysis,
 )
@@ -386,7 +387,32 @@ def test_assessment_explicit_conflict_detected(tmp_path):
     governance = next(response for response in responses if response.agent_name == "governance")
     assert "challenge" in strateg.response_text.lower() or "deviation" in strateg.response_text.lower()
     assert "potential new decision" in governance.response_text.lower()
-    assert "do not proceed as routine execution" in combined.lower()
+    assert "create/open new decision handling before execution" in combined.lower()
+    assert "likely conflict with active governing direction" in combined.lower()
+
+
+def test_combined_recommendation_is_action_plus_reason():
+    context = {
+        "active_decisions": [models.Decision(session_id="S1", title="D1", topic="Ops", decision_text="Do X")],
+        "historical_decisions": [],
+        "open_candidates": [],
+        "open_suggestions": [],
+        "decision_links": [],
+    }
+    assessment = models.DecisionAlignmentAssessment(
+        alignment="clarification_needed",
+        reason="Needs execution clarification.",
+    )
+    rec = combined_recommendation(
+        question="How should we execute this?",
+        context=context,
+        assessment=assessment,
+        role_analysis={"analyst": "Risk depends on sequencing assumptions."},
+    )
+    assert rec.startswith("Clarify before execution.")
+    assert "Why:" in rec
+    assert "missing clarification for execution details" in rec
+    assert "risk/uncertainty requires explicit handling" in rec
 
 
 def test_ask_decision_panel_output_includes_required_sections(tmp_path, capsys, monkeypatch):

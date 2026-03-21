@@ -833,7 +833,12 @@ def ask_decision_panel(
             [decision.id for decision in context["active_decisions"]],
         )
 
-        combined = combined_recommendation(normalized_question, context, assessment)
+        combined = combined_recommendation(
+            normalized_question,
+            context,
+            assessment,
+            role_analysis=role_analysis_outputs,
+        )
         panel_outcome = build_panel_outcome(context, assessment)
         likely_new_decision = panel_outcome.likely_requires_new_decision
         next_step = suggested_next_step(normalized_question, context, assessment)

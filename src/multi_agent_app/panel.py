@@ -437,23 +437,41 @@ def build_panel_outcome(
 
 
 def combined_recommendation(
-    question: str, context: PanelContext, assessment: models.DecisionAlignmentAssessment
+    question: str,
+    context: PanelContext,
+    assessment: models.DecisionAlignmentAssessment,
+    role_analysis: dict[str, str] | None = None,
 ) -> str:
-    if not context["active_decisions"]:
-        return "Create and confirm a new decision for this topic before execution."
-    if assessment.alignment == "likely_new_decision_required":
-        return (
-            "Do not proceed as routine execution. Raise an explicit new decision, document the proposed deviation, "
-            "and resolve governance before action."
-        )
-    if assessment.alignment == "potential_deviation":
-        return (
-            "Treat as possible deviation: capture exception rationale, run leadership review, and decide whether to "
-            "amend or supersede active decisions."
-        )
-    if context["open_suggestions"] or context["open_candidates"]:
-        return "Review open suggestions/candidates first, then either link or record a new decision."
-    return "Proceed with execution under current active decisions and monitor for new conflicts."
+    mode = decision_mode(context, assessment)
+    if mode == "execution_under_active_decision":
+        action = "Proceed within current decision scope."
+    elif mode == "clarification_of_active_decision":
+        action = "Clarify before execution."
+    elif mode == "potential_deviation":
+        action = "Pause scope changes and escalate exception handling."
+    else:
+        action = "Create/open new decision handling before execution."
+
+    reasons: list[str] = []
+    if mode == "execution_under_active_decision":
+        reasons.append("aligned with active direction")
+    elif mode == "clarification_of_active_decision":
+        reasons.append("missing clarification for execution details")
+    elif mode == "potential_deviation":
+        reasons.append("potential deviation from governing decisions")
+    else:
+        reasons.append("likely conflict with active governing direction")
+
+    if context["open_candidates"] or context["open_suggestions"]:
+        reasons.append("unresolved formal decision items exist")
+    if context["historical_decisions"]:
+        reasons.append("historical decision shifts increase interpretation risk")
+
+    analyst_view = (role_analysis or {}).get("analyst", "").lower()
+    if any(signal in analyst_view for signal in ("risk", "uncertainty", "assumption")):
+        reasons.append("risk/uncertainty requires explicit handling")
+
+    return f"{action} Why: {', '.join(reasons)}."
 
 
 def suggested_next_step(
