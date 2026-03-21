@@ -80,6 +80,10 @@ Happy path i korthet:
 3. explore: oppna `tui`
 4. continue: ställ ny fraga via `ask-decision-panel` eller direkt i TUI
 
+## Alpha readiness
+
+- Se [ALPHA_CHECKLIST.md](ALPHA_CHECKLIST.md) for konkret "go/no-go" innan forsta alfa.
+
 ## Paketstruktur
 
 - `src/multi_agent_app/models.py` - Pydantic-modeller for Session, Task, AgentAction, MemoryItem, SessionEvent.
