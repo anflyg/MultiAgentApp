@@ -920,7 +920,7 @@ def ask_decision_panel(
             if llm_provider is None
             else resolved_provider.name != "heuristic"
         )
-        role_analysis_outputs, role_sources = apply_role_llm_overrides(
+        role_analysis_outputs, role_sources, fallback_reasons = apply_role_llm_overrides(
             provider=resolved_provider,
             roles=roles,
             question=normalized_question,
@@ -935,6 +935,7 @@ def ask_decision_panel(
             "role_sources": role_sources,
             "llm_roles": [role for role, source in role_sources.items() if source == "llm"],
             "fallback_roles": [role for role, source in role_sources.items() if source != "llm"],
+            "fallback_reasons": fallback_reasons,
         }
         responses = [
                 models.PanelResponse(
@@ -1621,6 +1622,11 @@ def main() -> None:
             if isinstance(llm_status, dict)
             else {}
         )
+        fallback_reasons = (
+            llm_status.get("fallback_reasons", {})
+            if isinstance(llm_status, dict)
+            else {}
+        )
         provider_name = llm_status.get("provider", "heuristic") if isinstance(llm_status, dict) else "heuristic"
         provider_enabled = bool(llm_status.get("provider_enabled")) if isinstance(llm_status, dict) else False
         provider_available = bool(llm_status.get("provider_available")) if isinstance(llm_status, dict) else False
@@ -1673,6 +1679,9 @@ def main() -> None:
             f"provider={provider_name} | enabled={'yes' if provider_enabled else 'no'} | "
             f"available={'yes' if provider_available else 'no'}"
         )
+        if fallback_reasons:
+            compact = ", ".join(f"{role}={reason}" for role, reason in sorted(fallback_reasons.items()))
+            print(f"Fallback notes: {compact}")
         print(f"Decision context at a glance: {_context_signal_line(context)}")
         draft = _build_decision_candidate_draft(
             question_text=panel_question.question_text,
@@ -1740,6 +1749,7 @@ def main() -> None:
         reasoning_items = case.get("reasoning_items", [])
         by_agent = {response.agent_name: response.response_text for response in responses}
         role_sources: dict[str, str] = {}
+        fallback_reasons: dict[str, str] = {}
         provider_name = "heuristic"
         provider_enabled = False
         provider_available = False
@@ -1760,6 +1770,7 @@ def main() -> None:
             )
             if isinstance(llm_status, dict):
                 role_sources = llm_status.get("role_sources", {}) or {}
+                fallback_reasons = llm_status.get("fallback_reasons", {}) or {}
                 provider_name = llm_status.get("provider", "heuristic")
                 provider_enabled = bool(llm_status.get("provider_enabled"))
                 provider_available = bool(llm_status.get("provider_available"))
@@ -1785,6 +1796,9 @@ def main() -> None:
                 f"provider={provider_name} | enabled={'yes' if provider_enabled else 'no'} | "
                 f"available={'yes' if provider_available else 'no'}"
             )
+            if fallback_reasons:
+                compact = ", ".join(f"{role}={reason}" for role, reason in sorted(fallback_reasons.items()))
+                print(f"Fallback notes: {compact}")
             relevant_context = sections.get("relevant_context", {})
             active_ids = relevant_context.get("active_decision_ids", []) if isinstance(relevant_context, dict) else []
             historical_ids = (

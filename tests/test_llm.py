@@ -2,7 +2,14 @@ from __future__ import annotations
 
 from multi_agent_app import models
 from multi_agent_app.cli import ask_decision_panel, create_decision, create_session
-from multi_agent_app.llm import NullLLMProvider, apply_role_llm_overrides, provider_from_env
+from multi_agent_app.llm import (
+    NullLLMProvider,
+    _extract_chat_completions_text,
+    _extract_openai_error,
+    _extract_openai_text,
+    apply_role_llm_overrides,
+    provider_from_env,
+)
 from multi_agent_app.panel import default_advisor_roles
 from multi_agent_app.storage import Storage
 
@@ -61,7 +68,7 @@ def test_apply_role_llm_overrides_keeps_heuristics_when_provider_disabled():
         "open_suggestions": [],
         "decision_links": [],
     }
-    output, role_sources = apply_role_llm_overrides(
+    output, role_sources, fallback_reasons = apply_role_llm_overrides(
         provider=NullLLMProvider(),
         roles=roles,
         question="How should we proceed?",
@@ -71,6 +78,7 @@ def test_apply_role_llm_overrides_keeps_heuristics_when_provider_disabled():
     )
     assert output == heuristic_outputs
     assert all(source == "heuristic" for source in role_sources.values())
+    assert all(reason == "provider_unavailable" for reason in fallback_reasons.values())
 
 
 def test_ask_decision_panel_accepts_provider_and_overrides_role_text(tmp_path):
@@ -97,5 +105,21 @@ def test_ask_decision_panel_accepts_provider_and_overrides_role_text(tmp_path):
         assert llm_status.get("provider_enabled") is True
         assert llm_status.get("provider_available") is True
         assert set(llm_status.get("llm_roles", [])) == {"strateg", "analyst", "operator", "governance"}
+        assert llm_status.get("fallback_reasons", {}) == {}
     finally:
         storage.close()
+
+
+def test_extract_openai_text_supports_output_text_list():
+    raw = '{"output_text":["First line","Second line"]}'
+    assert _extract_openai_text(raw) == "First line\nSecond line"
+
+
+def test_extract_chat_completions_text_supports_string_content():
+    raw = '{"choices":[{"message":{"content":"Role specific answer"}}]}'
+    assert _extract_chat_completions_text(raw) == "Role specific answer"
+
+
+def test_extract_openai_error_returns_message():
+    raw = '{"error":{"message":"Invalid API key","type":"invalid_request_error"}}'
+    assert _extract_openai_error(raw) == "Invalid API key"

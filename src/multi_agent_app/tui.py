@@ -337,6 +337,11 @@ class MultiAgentTUI(App[None]):
             if isinstance(llm_status, dict)
             else {}
         )
+        fallback_reasons = (
+            llm_status.get("fallback_reasons", {})
+            if isinstance(llm_status, dict)
+            else {}
+        )
         if isinstance(role_analysis, dict):
             for role_name in ("strateg", "analyst", "operator", "governance"):
                 if role_name in role_analysis:
@@ -415,12 +420,18 @@ class MultiAgentTUI(App[None]):
             provider_name = llm_status.get("provider", "heuristic") if isinstance(llm_status, dict) else "heuristic"
             provider_enabled = bool(llm_status.get("provider_enabled")) if isinstance(llm_status, dict) else False
             provider_available = bool(llm_status.get("provider_available")) if isinstance(llm_status, dict) else False
+            fallback_text = (
+                ", ".join(f"{role}={reason}" for role, reason in sorted(fallback_reasons.items()))
+                if fallback_reasons
+                else "-"
+            )
             status_text = (
                 f"assessment: {alignment_label(status_assessment.get('alignment', '-'))}\n"
                 f"handling mode: {decision_mode_label(mode_value) if mode_value != '-' else '-'}\n"
                 f"reason: {status_assessment.get('reason', '-')}\n"
                 f"role generation: provider={provider_name} | enabled={'yes' if provider_enabled else 'no'} | "
                 f"available={'yes' if provider_available else 'no'}\n"
+                f"fallback notes: {fallback_text}\n"
                 f"new decision likelihood: {likelihood_label(status_assessment.get('likely_requires_new_decision', '-'))}\n"
                 f"formal_next_step: {status_assessment.get('formal_next_step', '-')}\n"
                 f"suggested_next_step: {status_assessment.get('suggested_next_step', '-')}"
@@ -492,6 +503,7 @@ class MultiAgentTUI(App[None]):
         status_payload = stored_analysis.decision_status_assessment if stored_analysis else {}
         llm_status = status_payload.get("llm_status", {}) if isinstance(status_payload, dict) else {}
         role_sources = llm_status.get("role_sources", {}) if isinstance(llm_status, dict) else {}
+        fallback_reasons = llm_status.get("fallback_reasons", {}) if isinstance(llm_status, dict) else {}
         provider_name = llm_status.get("provider", "heuristic") if isinstance(llm_status, dict) else "heuristic"
         provider_enabled = bool(llm_status.get("provider_enabled")) if isinstance(llm_status, dict) else False
         provider_available = bool(llm_status.get("provider_available")) if isinstance(llm_status, dict) else False
@@ -542,6 +554,11 @@ class MultiAgentTUI(App[None]):
             f"provider={provider_name} | enabled={'yes' if provider_enabled else 'no'} | "
             f"available={'yes' if provider_available else 'no'}"
         )
+        if fallback_reasons:
+            output.write(
+                "Fallback notes: "
+                + ", ".join(f"{role}={reason}" for role, reason in sorted(fallback_reasons.items()))
+            )
         output.write(
             "Decision context at a glance: "
             f"active={len(context['active_decisions'])} | historical={len(context['historical_decisions'])} | "

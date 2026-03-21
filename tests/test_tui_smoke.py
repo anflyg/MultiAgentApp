@@ -79,6 +79,7 @@ def test_tui_build_question_detail_texts_uses_sections_when_available():
     assert "assessment: Needs clarification before execution" in status_text
     assert "handling mode: Clarify current decision before execution" in status_text
     assert "role generation: provider=heuristic | enabled=no | available=no" in status_text
+    assert "fallback notes: -" in status_text
     assert "formal_next_step: Document clarification before execution." in status_text
     assert "suggested_next_step: Document owner and sequence." in status_text
     assert "new decision likelihood: Probably" in status_text

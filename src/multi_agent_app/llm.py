@@ -66,6 +66,7 @@ class OpenAIChatProvider:
         self.api_key = (api_key or "").strip()
         self.model = model.strip() or "gpt-4o-mini"
         self.timeout_seconds = timeout_seconds
+        self.last_error: str | None = None
 
     def is_available(self) -> bool:
         return bool(self.api_key)
@@ -79,22 +80,56 @@ class OpenAIChatProvider:
         assessment: models.DecisionAlignmentAssessment,
         fallback_response: str,
     ) -> str | None:
+        self.last_error = None
         if not self.is_available():
+            self.last_error = "provider_unavailable"
             return None
 
-        payload = {
+        prompt = self._build_prompt(
+            role=role,
+            question=question,
+            context=context,
+            assessment=assessment,
+            fallback_response=fallback_response,
+        )
+
+        response_payload = {
             "model": self.model,
-            "input": self._build_prompt(
-                role=role,
-                question=question,
-                context=context,
-                assessment=assessment,
-                fallback_response=fallback_response,
-            ),
+            "input": [
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "input_text",
+                            "text": prompt,
+                        }
+                    ],
+                }
+            ],
         }
+        body = self._post_json("https://api.openai.com/v1/responses", response_payload)
+        text = _extract_openai_text(body) if body else None
+        if text:
+            return text
+
+        # Conservative fallback endpoint if responses parsing/shape fails.
+        chat_payload = {
+            "model": self.model,
+            "messages": [{"role": "user", "content": prompt}],
+        }
+        body = self._post_json("https://api.openai.com/v1/chat/completions", chat_payload)
+        text = _extract_chat_completions_text(body) if body else None
+        if text:
+            return text
+
+        if self.last_error is None:
+            self.last_error = "empty_or_unparseable_response"
+        return None
+
+    def _post_json(self, url: str, payload: dict[str, object]) -> str | None:
         data = json.dumps(payload).encode("utf-8")
         req = request.Request(
-            "https://api.openai.com/v1/responses",
+            url,
             data=data,
             method="POST",
             headers={
@@ -104,14 +139,19 @@ class OpenAIChatProvider:
         )
         try:
             with request.urlopen(req, timeout=self.timeout_seconds) as resp:
-                body = resp.read().decode("utf-8")
-        except (error.URLError, TimeoutError, OSError):
+                return resp.read().decode("utf-8")
+        except error.HTTPError as exc:
+            body = ""
+            try:
+                body = exc.read().decode("utf-8")
+            except Exception:
+                body = ""
+            msg = _extract_openai_error(body) or f"http_{exc.code}"
+            self.last_error = msg
             return None
-
-        text = _extract_openai_text(body)
-        if not text:
+        except (error.URLError, TimeoutError, OSError) as exc:
+            self.last_error = f"network_error: {exc.__class__.__name__}"
             return None
-        return text
 
     def _build_prompt(
         self,
@@ -153,6 +193,10 @@ def _extract_openai_text(raw_body: str) -> str | None:
     output_text = payload.get("output_text")
     if isinstance(output_text, str) and output_text.strip():
         return output_text.strip()
+    if isinstance(output_text, list):
+        lines = [item.strip() for item in output_text if isinstance(item, str) and item.strip()]
+        if lines:
+            return "\n".join(lines)
     output = payload.get("output")
     if not isinstance(output, list):
         return None
@@ -168,6 +212,53 @@ def _extract_openai_text(raw_body: str) -> str | None:
             text = part.get("text")
             if isinstance(text, str) and text.strip():
                 return text.strip()
+    return None
+
+
+def _extract_chat_completions_text(raw_body: str) -> str | None:
+    try:
+        payload = json.loads(raw_body)
+    except json.JSONDecodeError:
+        return None
+    choices = payload.get("choices")
+    if not isinstance(choices, list) or not choices:
+        return None
+    first = choices[0]
+    if not isinstance(first, dict):
+        return None
+    message = first.get("message")
+    if not isinstance(message, dict):
+        return None
+    content = message.get("content")
+    if isinstance(content, str) and content.strip():
+        return content.strip()
+    if isinstance(content, list):
+        segments: list[str] = []
+        for part in content:
+            if not isinstance(part, dict):
+                continue
+            text = part.get("text")
+            if isinstance(text, str) and text.strip():
+                segments.append(text.strip())
+        if segments:
+            return "\n".join(segments)
+    return None
+
+
+def _extract_openai_error(raw_body: str) -> str | None:
+    try:
+        payload = json.loads(raw_body)
+    except json.JSONDecodeError:
+        return None
+    err = payload.get("error")
+    if not isinstance(err, dict):
+        return None
+    message = err.get("message")
+    if isinstance(message, str) and message.strip():
+        return message.strip()
+    code = err.get("code")
+    if isinstance(code, str) and code.strip():
+        return code.strip()
     return None
 
 
@@ -192,15 +283,22 @@ def apply_role_llm_overrides(
     context: Mapping[str, object],
     assessment: models.DecisionAlignmentAssessment,
     heuristic_outputs: Mapping[str, str],
-) -> tuple[dict[str, str], dict[str, str]]:
+) -> tuple[dict[str, str], dict[str, str], dict[str, str]]:
     output = dict(heuristic_outputs)
     role_sources = {
         role.name: "heuristic"
         for role in roles
         if role.name in output
     }
+    fallback_reasons = {
+        role.name: "heuristic_default"
+        for role in roles
+        if role.name in output
+    }
     if not provider.is_available():
-        return output, role_sources
+        for role_name in fallback_reasons:
+            fallback_reasons[role_name] = "provider_unavailable"
+        return output, role_sources, fallback_reasons
     for role in roles:
         fallback = output.get(role.name, "")
         generated = provider.generate_role_response(
@@ -213,4 +311,8 @@ def apply_role_llm_overrides(
         if generated:
             output[role.name] = generated
             role_sources[role.name] = "llm"
-    return output, role_sources
+            fallback_reasons.pop(role.name, None)
+            continue
+        error_reason = getattr(provider, "last_error", None) or "empty_or_unparseable_response"
+        fallback_reasons[role.name] = str(error_reason)
+    return output, role_sources, fallback_reasons

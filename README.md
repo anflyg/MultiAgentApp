@@ -82,6 +82,7 @@ Om provider inte ar tillganglig (t.ex. saknad nyckel eller timeout) faller panel
 I paneloutput visas detta tydligt via:
 - `Role generation mode: provider=... | enabled=... | available=...`
 - rollrad per advisor: `Strateg [LLM]` eller `Strateg [heuristic fallback]`
+- `Fallback notes: ...` per roll nar LLM inte kunde anvandas (t.ex. parse/network/error)
 
 ## Snabb demo fran tomt lage
 
