@@ -78,18 +78,18 @@ class MultiAgentTUI(App[None]):
                 yield Static("", id="active-decisions")
                 yield Select([], prompt="Select active decision", id="decision-select", allow_blank=True)
             with Vertical(id="middle"):
-                yield Static("Selected question analysis", classes="section-title")
+                yield Static("Selected question brief", classes="section-title")
                 yield Static("", id="question-analysis")
-                yield Static("Combined recommendation", classes="section-title")
+                yield Static("Panel recommendation", classes="section-title")
                 yield Static("", id="question-recommendation")
-                yield Static("Decision status assessment", classes="section-title")
+                yield Static("Decision guidance", classes="section-title")
                 yield Static("", id="question-status")
                 yield Static("Decision detail", classes="section-title")
                 yield Static("", id="decision-detail")
             with Vertical(id="right"):
-                yield Static("Open decision candidates", classes="section-title")
+                yield Static("Pending decision candidates", classes="section-title")
                 yield Static("", id="open-candidates")
-                yield Static("Open decision suggestions", classes="section-title")
+                yield Static("Pending decision suggestions", classes="section-title")
                 yield Static("", id="open-suggestions")
                 yield Static("Recent activity", classes="section-title")
                 yield Static("", id="recent-activity")
@@ -181,8 +181,8 @@ class MultiAgentTUI(App[None]):
             self._schedule_question_render(selected_question_id)
         else:
             self.query_one("#question-analysis", Static).update("Select a question to inspect analysis.")
-            self.query_one("#question-recommendation", Static).update("No combined recommendation available.")
-            self.query_one("#question-status", Static).update("No decision status assessment available.")
+            self.query_one("#question-recommendation", Static).update("No recommendation available yet.")
+            self.query_one("#question-status", Static).update("No decision guidance available yet.")
 
         self._active_decision_ids = [decision.id for decision in active_decisions]
         decision_lines = []
@@ -274,8 +274,8 @@ class MultiAgentTUI(App[None]):
         if case is None:
             return (
                 "Selected question was not found.",
-                "No combined recommendation available.",
-                "No decision status assessment available.",
+                "No recommendation available yet.",
+                "No decision guidance available yet.",
             )
 
         question = case["question"]
@@ -362,18 +362,18 @@ class MultiAgentTUI(App[None]):
             f"Status: {question.status}\n"
             f"Interpretation: {interpretation or '-'}\n"
             f"Relevant context: {context_line}\n"
-            f"Decision/memory signals: {' | '.join(signal_parts)}\n"
+            f"Context and memory signals: {' | '.join(signal_parts)}\n"
             f"Tensions: {tensions_text}\n"
-            f"Per-role analysis:\n"
+            f"Advisor perspectives:\n"
             + ("\n".join(role_lines) if role_lines else "- none")
-            + "\nReasoning items:\n"
+            + "\nKey reasoning notes:\n"
             + ("\n".join(reasoning_lines) if reasoning_lines else "- none")
         )
 
         combined = sections.get("combined_recommendation")
         if not combined and analysis is not None:
             combined = analysis.combined_recommendation
-        recommendation_text = combined or "No combined recommendation available."
+        recommendation_text = combined or "No recommendation available yet."
 
         status_assessment = sections.get("decision_status_assessment", {})
         if isinstance(status_assessment, dict) and status_assessment:
@@ -392,7 +392,7 @@ class MultiAgentTUI(App[None]):
                 f"likely_requires_new_decision: {analysis.likely_requires_new_decision}"
             )
         else:
-            status_text = "No decision status assessment available."
+            status_text = "No decision guidance available yet."
 
         return analysis_text, recommendation_text, status_text
 
@@ -447,7 +447,7 @@ class MultiAgentTUI(App[None]):
         output.write(f"Question: {panel_question.question_text}")
         output.write(f"Topic: {panel_question.topic}")
         output.write(
-            "Relevant active decisions: "
+            "Active decisions in scope: "
             + (
                 ", ".join(f"{d.id[:8]}:{d.title}" for d in context["active_decisions"])
                 if context["active_decisions"]
@@ -455,7 +455,7 @@ class MultiAgentTUI(App[None]):
             )
         )
         output.write(
-            "Historical decisions: "
+            "Previous related decisions: "
             + (
                 ", ".join(f"{d.id[:8]}:{d.title}" for d in context["historical_decisions"])
                 if context["historical_decisions"]
@@ -463,7 +463,7 @@ class MultiAgentTUI(App[None]):
             )
         )
         output.write(
-            "Open decision candidates: "
+            "Pending decision candidates: "
             + (
                 ", ".join(f"{c.id[:8]}:{c.title}" for c in context["open_candidates"])
                 if context["open_candidates"]
@@ -471,7 +471,7 @@ class MultiAgentTUI(App[None]):
             )
         )
         output.write(
-            "Open decision suggestions: "
+            "Pending decision suggestions: "
             + (
                 ", ".join(f"{s.id[:8]}:{s.suggestion_type}" for s in context["open_suggestions"])
                 if context["open_suggestions"]
@@ -479,19 +479,19 @@ class MultiAgentTUI(App[None]):
             )
         )
         panel_outcome = build_panel_outcome(context, assessment)
-        output.write(f"Decision alignment assessment: {assessment.alignment} ({assessment.reason})")
+        output.write(f"Assessment: {assessment.alignment} ({assessment.reason})")
         output.write(
-            "Panel classification: "
+            "Decision summary: "
             f"alignment={assessment.alignment} | mode={panel_outcome.decision_mode} | "
             f"likely_new_decision={panel_outcome.likely_requires_new_decision}"
         )
         output.write(
-            "Context signals: "
+            "Decision context at a glance: "
             f"active={len(context['active_decisions'])} | historical={len(context['historical_decisions'])} | "
             f"open_candidates={len(context['open_candidates'])} | open_suggestions={len(context['open_suggestions'])}"
         )
         output.write(
-            "Challenge points: "
+            "Key concerns: "
             + (" | ".join(assessment.challenge_points) if assessment.challenge_points else "none")
         )
         output.write(f"Strateg: {by_agent['strateg']}")
@@ -500,8 +500,8 @@ class MultiAgentTUI(App[None]):
         output.write(f"Governance: {by_agent['governance']}")
         output.write(f"Combined recommendation: {combined}")
         output.write(f"Formal next step: {panel_outcome.formal_next_step}")
-        output.write(f"Likely requires new decision?: {likely_new_decision}")
-        output.write(f"Suggested next step: {next_step}")
+        output.write(f"New decision likely?: {likely_new_decision}")
+        output.write(f"Recommended next step: {next_step}")
         self._status("Panel response generated.")
         self._selected_question_id = panel_question.id
         self._refresh_dashboard()

@@ -210,7 +210,7 @@ def test_show_decision_includes_relation_info(tmp_path, capsys, monkeypatch):
     assert "Alternatives considered: Alternative details" in output
     assert "Consequences: Consequence details" in output
     assert "Follow-up notes: Follow-up details" in output
-    assert "Reasoning items: 1" in output
+    assert "Key reasoning notes: 1" in output
     assert "Critical objection:" in output
     assert "rollout timeline may be too aggressive" in output
     assert "Outgoing links: 1" in output

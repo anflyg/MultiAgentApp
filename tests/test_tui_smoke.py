@@ -67,10 +67,10 @@ def test_tui_build_question_detail_texts_uses_sections_when_available():
     }
     analysis_text, recommendation_text, status_text = app._build_question_detail_texts(case)
     assert "Interpretation: Execution clarification under current direction." in analysis_text
-    assert "Per-role analysis:" in analysis_text
+    assert "Advisor perspectives:" in analysis_text
     assert "strateg: Stay aligned." in analysis_text
-    assert "Decision/memory signals:" in analysis_text
-    assert "Reasoning items:" in analysis_text
+    assert "Context and memory signals:" in analysis_text
+    assert "Key reasoning notes:" in analysis_text
     assert (
         "Risk signal: Timeline may slip due to dependency sequencing. "
         "(panel analysis; private context)" in analysis_text
@@ -90,8 +90,8 @@ def test_tui_build_question_detail_texts_handles_missing_case():
     app = MultiAgentTUI(db_path=":memory:")
     analysis_text, recommendation_text, status_text = app._build_question_detail_texts(None)
     assert "not found" in analysis_text.lower()
-    assert "No combined recommendation available." == recommendation_text
-    assert "No decision status assessment available." == status_text
+    assert "No recommendation available yet." == recommendation_text
+    assert "No decision guidance available yet." == status_text
 
 
 def test_tui_resolve_select_value_handles_string_and_blank():

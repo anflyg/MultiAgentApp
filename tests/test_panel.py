@@ -481,21 +481,21 @@ def test_ask_decision_panel_output_includes_required_sections(tmp_path, capsys, 
     output = capsys.readouterr().out
     assert "Question:" in output
     assert "Topic:" in output
-    assert "Relevant active decisions:" in output
-    assert "Historical decisions:" in output
-    assert "Open decision candidates:" in output
-    assert "Open decision suggestions:" in output
-    assert "Decision alignment assessment:" in output
-    assert "Panel classification:" in output
-    assert "Context signals:" in output
-    assert "Challenge points:" in output
+    assert "Active decisions in scope:" in output
+    assert "Previous related decisions:" in output
+    assert "Pending decision candidates:" in output
+    assert "Pending decision suggestions:" in output
+    assert "Assessment:" in output
+    assert "Decision summary:" in output
+    assert "Decision context at a glance:" in output
+    assert "Key concerns:" in output
     assert "Strateg:" in output
     assert "Analyst:" in output
     assert "Operator:" in output
     assert "Governance:" in output
     assert "Combined recommendation:" in output
-    assert "Likely requires new decision?:" in output
-    assert "Suggested next step:" in output
+    assert "New decision likely?:" in output
+    assert "Recommended next step:" in output
 
 
 def test_show_panel_question_command_loads_saved_case(tmp_path, capsys, monkeypatch):
@@ -523,14 +523,14 @@ def test_show_panel_question_command_loads_saved_case(tmp_path, capsys, monkeypa
     main()
     output = capsys.readouterr().out
     assert "Question:" in output
-    assert "Active decision context ids:" in output
-    assert "Decision alignment assessment:" in output
-    assert "Panel classification:" in output
-    assert "Context signals:" in output
+    assert "Active decision references:" in output
+    assert "Assessment:" in output
+    assert "Decision summary:" in output
+    assert "Decision context at a glance:" in output
     assert "Combined recommendation:" in output
     assert "Strateg:" in output
-    assert "Reasoning items:" in output
-    assert "Reasoning overview:" in output
+    assert "Key reasoning notes:" in output
+    assert "Reasoning summary:" in output
 
 
 def test_panel_cli_outputs_manual_candidate_draft_for_new_decision_case(tmp_path, capsys, monkeypatch):
@@ -560,7 +560,7 @@ def test_panel_cli_outputs_manual_candidate_draft_for_new_decision_case(tmp_path
     )
     main()
     output = capsys.readouterr().out
-    assert "Decision status mode: likely_new_decision_required" in output
+    assert "Handling mode: likely_new_decision_required" in output
     assert "Decision candidate draft (manual):" in output
     assert "title: Expansion: decision update from panel question" in output
     assert "Manual action:" in output
@@ -592,7 +592,7 @@ def test_show_panel_question_outputs_manual_candidate_draft_for_deviation_case(
     )
     main()
     output = capsys.readouterr().out
-    assert "Decision status mode: potential_deviation" in output
+    assert "Handling mode: potential_deviation" in output
     assert "Decision candidate draft (manual):" in output
     assert "title: Ops: decision update from panel question" in output
 

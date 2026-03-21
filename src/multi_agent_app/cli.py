@@ -1409,7 +1409,7 @@ def main() -> None:
         print(f"Alternatives considered: {decision.alternatives_considered or '-'}")
         print(f"Consequences: {decision.consequences or '-'}")
         print(f"Follow-up notes: {decision.follow_up_notes or '-'}")
-        print(f"Reasoning items: {len(reasoning_items)}")
+        print(f"Key reasoning notes: {len(reasoning_items)}")
         for item in _sorted_reasoning_items(reasoning_items):
             _print_reasoning_item(item, include_question=True)
         print(f"Outgoing links: {len(outgoing_links)}")
@@ -1489,28 +1489,28 @@ def main() -> None:
         print(f"Question: {panel_question.question_text}")
         print(f"Topic: {panel_question.topic}")
 
-        print("Relevant active decisions:")
+        print("Active decisions in scope:")
         if context["active_decisions"]:
             for decision in context["active_decisions"]:
                 print(f"- {decision.id} title={decision.title}")
         else:
             print("- none")
 
-        print("Historical decisions:")
+        print("Previous related decisions:")
         if context["historical_decisions"]:
             for decision in context["historical_decisions"]:
                 print(f"- {decision.id} title={decision.title}")
         else:
             print("- none")
 
-        print("Open decision candidates:")
+        print("Pending decision candidates:")
         if context["open_candidates"]:
             for candidate in context["open_candidates"]:
                 print(f"- {candidate.id} title={candidate.title}")
         else:
             print("- none")
 
-        print("Open decision suggestions:")
+        print("Pending decision suggestions:")
         if context["open_suggestions"]:
             for suggestion in context["open_suggestions"]:
                 print(
@@ -1520,15 +1520,15 @@ def main() -> None:
         else:
             print("- none")
 
-        print(f"Decision alignment assessment: {assessment.alignment} ({assessment.reason})")
+        print(f"Assessment: {assessment.alignment} ({assessment.reason})")
         outcome = build_panel_outcome(context, assessment)
-        print(f"Decision status mode: {outcome.decision_mode}")
+        print(f"Handling mode: {outcome.decision_mode}")
         print(f"Formal next step: {outcome.formal_next_step}")
         print(
-            "Panel classification: "
+            "Decision summary: "
             f"alignment={assessment.alignment} | mode={outcome.decision_mode} | likely_new_decision={likely_new_decision}"
         )
-        print(f"Context signals: {_context_signal_line(context)}")
+        print(f"Decision context at a glance: {_context_signal_line(context)}")
         draft = _build_decision_candidate_draft(
             question_text=panel_question.question_text,
             topic=panel_question.topic,
@@ -1541,7 +1541,7 @@ def main() -> None:
             open_candidate_ids=[candidate.id for candidate in context["open_candidates"]],
         )
         _print_decision_candidate_draft(draft)
-        print("Challenge points:")
+        print("Key concerns:")
         if assessment.challenge_points:
             for point in assessment.challenge_points:
                 print(f"- {point}")
@@ -1553,9 +1553,9 @@ def main() -> None:
         print(f"Operator: {by_agent['operator']}")
         print(f"Governance: {by_agent['governance']}")
         print(f"Combined recommendation: {combined}")
-        print(f"Likely requires new decision?: {likely_new_decision}")
-        print(f"Suggested next step: {next_step}")
-        print(f"Question case id: {panel_question.id}")
+        print(f"New decision likely?: {likely_new_decision}")
+        print(f"Recommended next step: {next_step}")
+        print(f"Saved question id: {panel_question.id}")
         return
 
     if args.command == "show-panel-question":
@@ -1577,20 +1577,20 @@ def main() -> None:
         print(f"Topic: {question.topic}")
         print(f"Status: {question.status}")
         print(
-            "Active decision context ids: "
+            "Active decision references: "
             + (", ".join(context_decision_ids) if context_decision_ids else "none")
         )
         if analysis is not None:
             assessment_payload = analysis.decision_status_assessment or {}
             formal_next_step_text = assessment_payload.get("formal_next_step", analysis.suggested_next_step)
             print(
-                f"Decision alignment assessment: "
+                f"Assessment: "
                 f"{analysis.assessment_alignment} ({analysis.assessment_reason})"
             )
-            print(f"Decision status mode: {assessment_payload.get('decision_mode', '-')}")
+            print(f"Handling mode: {assessment_payload.get('decision_mode', '-')}")
             print(f"Formal next step: {formal_next_step_text}")
             print(
-                "Panel classification: "
+                "Decision summary: "
                 f"alignment={analysis.assessment_alignment} | "
                 f"mode={assessment_payload.get('decision_mode', '-')} | "
                 f"likely_new_decision={analysis.likely_requires_new_decision}"
@@ -1613,7 +1613,7 @@ def main() -> None:
                 else []
             )
             print(
-                "Context signals: "
+                "Decision context at a glance: "
                 f"active={len(active_ids or context_decision_ids)} | "
                 f"historical={len(historical_ids)} | "
                 f"open_candidates={len(open_candidate_ids)} | "
@@ -1631,24 +1631,24 @@ def main() -> None:
             )
             _print_decision_candidate_draft(draft)
             print(
-                "Challenge points: "
+                "Key concerns: "
                 + (" | ".join(analysis.challenge_points) if analysis.challenge_points else "none")
             )
             print(f"Combined recommendation: {analysis.combined_recommendation}")
-            print(f"Likely requires new decision?: {analysis.likely_requires_new_decision}")
-            print(f"Suggested next step: {analysis.suggested_next_step}")
+            print(f"New decision likely?: {analysis.likely_requires_new_decision}")
+            print(f"Recommended next step: {analysis.suggested_next_step}")
         else:
-            print("Decision alignment assessment: none")
-            print("Challenge points: none")
+            print("Assessment: none")
+            print("Key concerns: none")
             print("Combined recommendation: none")
-            print("Likely requires new decision?: probably")
-            print("Suggested next step: none")
+            print("New decision likely?: probably")
+            print("Recommended next step: none")
         print(f"Strateg: {by_agent.get('strateg', '-')}")
         print(f"Analyst: {by_agent.get('analyst', '-')}")
         print(f"Operator: {by_agent.get('operator', '-')}")
         print(f"Governance: {by_agent.get('governance', '-')}")
-        print(f"Reasoning items: {len(reasoning_items)}")
-        print(f"Reasoning overview: {_reasoning_signal_line(reasoning_items)}")
+        print(f"Key reasoning notes: {len(reasoning_items)}")
+        print(f"Reasoning summary: {_reasoning_signal_line(reasoning_items)}")
         for item in _sorted_reasoning_items(reasoning_items):
             _print_reasoning_item(item)
         return
