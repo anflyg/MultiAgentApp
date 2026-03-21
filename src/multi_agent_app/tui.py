@@ -236,7 +236,14 @@ class MultiAgentTUI(App[None]):
         self.query_one("#recent-activity", Static).update(
             "\n".join(event_lines) if event_lines else "No recent activity."
         )
-        self._status("Dashboard refreshed.")
+        if recent_questions:
+            self._status(
+                "Dashboard refreshed. Happy path: select a question on the left, review recommendation in the center, then ask a new panel question on the right."
+            )
+        else:
+            self._status(
+                "Dashboard refreshed. Happy path: use Ask panel on the right to create your first question, then select it on the left."
+            )
 
     def _render_decision_detail(self, decision_id: str) -> None:
         storage = Storage(db_path=self.db_path)

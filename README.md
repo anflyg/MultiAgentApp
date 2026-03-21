@@ -74,6 +74,12 @@ I denna iteration sker fortfarande skapande/hantering via CLI:
 3. Starta TUI med samma databas:
    - `python src/main.py --db-path alpha_demo.db tui`
 
+Happy path i korthet:
+1. setup: kor `alpha-demo-setup`
+2. inspect: kor `show-panel-question` pa sparad fraga
+3. explore: oppna `tui`
+4. continue: ställ ny fraga via `ask-decision-panel` eller direkt i TUI
+
 ## Paketstruktur
 
 - `src/multi_agent_app/models.py` - Pydantic-modeller for Session, Task, AgentAction, MemoryItem, SessionEvent.

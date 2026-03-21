@@ -1640,6 +1640,16 @@ def main() -> None:
         print(f"New decision likely?: {likelihood_label(likely_new_decision)}")
         print(f"Recommended next step: {next_step}")
         print(f"Saved question id: {panel_question.id}")
+        print("Next steps:")
+        print(
+            f"- python src/main.py --db-path {args.db_path} "
+            f"show-panel-question --question-id {panel_question.id}"
+        )
+        print(
+            f"- python src/main.py --db-path {args.db_path} "
+            f"list-panel-questions --topic {panel_question.topic}"
+        )
+        print(f"- python src/main.py --db-path {args.db_path} tui")
         return
 
     if args.command == "show-panel-question":
@@ -1739,6 +1749,12 @@ def main() -> None:
         print(f"Reasoning summary: {_reasoning_signal_line(reasoning_items)}")
         for item in _sorted_reasoning_items(reasoning_items):
             _print_reasoning_item(item)
+        print("Next steps:")
+        print(
+            f"- python src/main.py --db-path {args.db_path} "
+            f"ask-decision-panel --topic {question.topic} --question \"<din nästa fråga>\""
+        )
+        print(f"- python src/main.py --db-path {args.db_path} tui")
         return
 
     if args.command == "list-panel-questions":

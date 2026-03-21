@@ -496,6 +496,8 @@ def test_ask_decision_panel_output_includes_required_sections(tmp_path, capsys, 
     assert "Combined recommendation:" in output
     assert "New decision likely?:" in output
     assert "Recommended next step:" in output
+    assert "Next steps:" in output
+    assert "show-panel-question --question-id" in output
 
 
 def test_show_panel_question_command_loads_saved_case(tmp_path, capsys, monkeypatch):
@@ -531,6 +533,8 @@ def test_show_panel_question_command_loads_saved_case(tmp_path, capsys, monkeypa
     assert "Strateg:" in output
     assert "Key reasoning notes:" in output
     assert "Reasoning summary:" in output
+    assert "Next steps:" in output
+    assert "ask-decision-panel --topic Ops --question" in output
 
 
 def test_panel_cli_outputs_manual_candidate_draft_for_new_decision_case(tmp_path, capsys, monkeypatch):
