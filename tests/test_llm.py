@@ -5,6 +5,7 @@ from multi_agent_app.cli import ask_decision_panel, create_decision, create_sess
 from multi_agent_app.llm import (
     NullLLMProvider,
     _extract_chat_completions_text,
+    _extract_gemini_text,
     _extract_openai_error,
     _extract_openai_text,
     apply_role_llm_overrides,
@@ -51,6 +52,15 @@ def test_provider_from_env_openai_without_key_is_unavailable(monkeypatch):
 
     provider = provider_from_env()
     assert provider.name == "openai"
+    assert provider.is_available() is False
+
+
+def test_provider_from_env_gemini_without_key_is_unavailable(monkeypatch):
+    monkeypatch.setenv("MULTI_AGENT_APP_LLM_PROVIDER", "gemini")
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+
+    provider = provider_from_env()
+    assert provider.name == "gemini"
     assert provider.is_available() is False
 
 
@@ -123,3 +133,8 @@ def test_extract_chat_completions_text_supports_string_content():
 def test_extract_openai_error_returns_message():
     raw = '{"error":{"message":"Invalid API key","type":"invalid_request_error"}}'
     assert _extract_openai_error(raw) == "Invalid API key"
+
+
+def test_extract_gemini_text_returns_candidate_text():
+    raw = '{"candidates":[{"content":{"parts":[{"text":"Gemini role answer"}]}}]}'
+    assert _extract_gemini_text(raw) == "Gemini role answer"

@@ -930,6 +930,7 @@ def ask_decision_panel(
         )
         llm_status = {
             "provider": resolved_provider.name,
+            "model": getattr(resolved_provider, "model", None),
             "provider_enabled": provider_enabled,
             "provider_available": resolved_provider.is_available(),
             "role_sources": role_sources,
@@ -1628,6 +1629,7 @@ def main() -> None:
             else {}
         )
         provider_name = llm_status.get("provider", "heuristic") if isinstance(llm_status, dict) else "heuristic"
+        provider_model = llm_status.get("model") if isinstance(llm_status, dict) else None
         provider_enabled = bool(llm_status.get("provider_enabled")) if isinstance(llm_status, dict) else False
         provider_available = bool(llm_status.get("provider_available")) if isinstance(llm_status, dict) else False
         print(f"Question: {panel_question.question_text}")
@@ -1676,7 +1678,8 @@ def main() -> None:
         )
         print(
             "Role generation mode: "
-            f"provider={provider_name} | enabled={'yes' if provider_enabled else 'no'} | "
+            f"provider={provider_name}"
+            f"{f' ({provider_model})' if provider_model else ''} | enabled={'yes' if provider_enabled else 'no'} | "
             f"available={'yes' if provider_available else 'no'}"
         )
         if fallback_reasons:
@@ -1751,6 +1754,7 @@ def main() -> None:
         role_sources: dict[str, str] = {}
         fallback_reasons: dict[str, str] = {}
         provider_name = "heuristic"
+        provider_model = None
         provider_enabled = False
         provider_available = False
 
@@ -1772,6 +1776,7 @@ def main() -> None:
                 role_sources = llm_status.get("role_sources", {}) or {}
                 fallback_reasons = llm_status.get("fallback_reasons", {}) or {}
                 provider_name = llm_status.get("provider", "heuristic")
+                provider_model = llm_status.get("model")
                 provider_enabled = bool(llm_status.get("provider_enabled"))
                 provider_available = bool(llm_status.get("provider_available"))
             formal_next_step_text = assessment_payload.get("formal_next_step", analysis.suggested_next_step)
@@ -1793,7 +1798,8 @@ def main() -> None:
             )
             print(
                 "Role generation mode: "
-                f"provider={provider_name} | enabled={'yes' if provider_enabled else 'no'} | "
+                f"provider={provider_name}"
+                f"{f' ({provider_model})' if provider_model else ''} | enabled={'yes' if provider_enabled else 'no'} | "
                 f"available={'yes' if provider_available else 'no'}"
             )
             if fallback_reasons:

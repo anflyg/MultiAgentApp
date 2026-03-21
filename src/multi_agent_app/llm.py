@@ -191,6 +191,136 @@ class OpenAIChatProvider:
         assessment: models.DecisionAlignmentAssessment,
         fallback_response: str,
     ) -> str:
+        return _build_role_prompt(
+            role=role,
+            question=question,
+            context=context,
+            assessment=assessment,
+            fallback_response=fallback_response,
+        )
+
+
+class GeminiProvider:
+    """Minimal Gemini-backed provider using generateContent."""
+
+    name = "gemini"
+
+    def __init__(
+        self,
+        *,
+        api_key: str | None,
+        model: str = "gemini-1.5-flash",
+        timeout_seconds: float = 8.0,
+    ) -> None:
+        self.api_key = (api_key or "").strip()
+        self.model = model.strip() or "gemini-1.5-flash"
+        self.timeout_seconds = timeout_seconds
+        self.last_error: str | None = None
+
+    def is_available(self) -> bool:
+        return bool(self.api_key)
+
+    def generate_role_response(
+        self,
+        *,
+        role: models.AdvisorRole,
+        question: str,
+        context: Mapping[str, object],
+        assessment: models.DecisionAlignmentAssessment,
+        fallback_response: str,
+    ) -> str | None:
+        self.last_error = None
+        if not self.is_available():
+            self.last_error = "provider_unavailable"
+            return None
+
+        prompt = _build_role_prompt(
+            role=role,
+            question=question,
+            context=context,
+            assessment=assessment,
+            fallback_response=fallback_response,
+        )
+        payload = {
+            "contents": [
+                {
+                    "parts": [
+                        {
+                            "text": prompt,
+                        }
+                    ]
+                }
+            ]
+        }
+        url = (
+            f"https://generativelanguage.googleapis.com/v1beta/models/"
+            f"{self.model}:generateContent?key={self.api_key}"
+        )
+        body = self._post_json(url, payload)
+        text = _extract_gemini_text(body) if body else None
+        if text:
+            return text
+        if self.last_error is None:
+            self.last_error = "empty_or_unparseable_response"
+        return None
+
+    def _post_json(self, url: str, payload: dict[str, object]) -> str | None:
+        if requests is not None:
+            try:
+                resp = requests.post(
+                    url,
+                    json=payload,
+                    headers={
+                        "Content-Type": "application/json",
+                        "Accept": "application/json",
+                        "User-Agent": "MultiAgentApp/alpha",
+                    },
+                    timeout=self.timeout_seconds,
+                )
+                if resp.status_code >= 400:
+                    msg = _extract_openai_error(resp.text) or f"http_{resp.status_code}"
+                    self.last_error = msg
+                    return None
+                return resp.text
+            except requests.RequestException as exc:
+                self.last_error = f"network_error: {exc.__class__.__name__}"
+
+        data = json.dumps(payload).encode("utf-8")
+        req = request.Request(
+            url,
+            data=data,
+            method="POST",
+            headers={
+                "Content-Type": "application/json",
+                "Accept": "application/json",
+                "User-Agent": "MultiAgentApp/alpha",
+            },
+        )
+        try:
+            with request.urlopen(req, timeout=self.timeout_seconds) as resp:
+                return resp.read().decode("utf-8")
+        except error.HTTPError as exc:
+            body = ""
+            try:
+                body = exc.read().decode("utf-8")
+            except Exception:
+                body = ""
+            msg = _extract_openai_error(body) or f"http_{exc.code}"
+            self.last_error = msg
+            return None
+        except (error.URLError, TimeoutError, OSError) as exc:
+            self.last_error = f"network_error: {exc.__class__.__name__}"
+            return None
+
+
+def _build_role_prompt(
+    *,
+    role: models.AdvisorRole,
+    question: str,
+    context: Mapping[str, object],
+    assessment: models.DecisionAlignmentAssessment,
+    fallback_response: str,
+) -> str:
         active_count = len(context.get("active_decisions", []) if isinstance(context, dict) else [])
         candidate_count = len(context.get("open_candidates", []) if isinstance(context, dict) else [])
         suggestion_count = len(context.get("open_suggestions", []) if isinstance(context, dict) else [])
@@ -291,17 +421,51 @@ def _extract_openai_error(raw_body: str) -> str | None:
     return None
 
 
+def _extract_gemini_text(raw_body: str) -> str | None:
+    try:
+        payload = json.loads(raw_body)
+    except json.JSONDecodeError:
+        return None
+    candidates = payload.get("candidates")
+    if not isinstance(candidates, list) or not candidates:
+        return None
+    first = candidates[0]
+    if not isinstance(first, dict):
+        return None
+    content = first.get("content")
+    if not isinstance(content, dict):
+        return None
+    parts = content.get("parts")
+    if not isinstance(parts, list):
+        return None
+    segments: list[str] = []
+    for part in parts:
+        if not isinstance(part, dict):
+            continue
+        text = part.get("text")
+        if isinstance(text, str) and text.strip():
+            segments.append(text.strip())
+    if not segments:
+        return None
+    return "\n".join(segments)
+
+
 def provider_from_env() -> LLMProvider:
     selected = os.getenv("MULTI_AGENT_APP_LLM_PROVIDER", "").strip().lower()
-    if selected != "openai":
-        return NullLLMProvider()
-    api_key = os.getenv("OPENAI_API_KEY")
-    model = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
-    return OpenAIChatProvider(api_key=api_key, model=model)
+    if selected == "openai":
+        api_key = os.getenv("OPENAI_API_KEY")
+        model = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+        return OpenAIChatProvider(api_key=api_key, model=model)
+    if selected == "gemini":
+        api_key = os.getenv("GEMINI_API_KEY")
+        model = os.getenv("GEMINI_MODEL", "gemini-1.5-flash")
+        return GeminiProvider(api_key=api_key, model=model)
+    return NullLLMProvider()
 
 
 def provider_enabled_from_env() -> bool:
-    return os.getenv("MULTI_AGENT_APP_LLM_PROVIDER", "").strip().lower() == "openai"
+    selected = os.getenv("MULTI_AGENT_APP_LLM_PROVIDER", "").strip().lower()
+    return selected in {"openai", "gemini"}
 
 
 def apply_role_llm_overrides(

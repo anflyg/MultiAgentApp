@@ -77,10 +77,14 @@ Panelen kor heuristiskt som standard. Ett litet provider-lager finns nu som grun
   - `export MULTI_AGENT_APP_LLM_PROVIDER=openai`
   - `export OPENAI_API_KEY=<din_nyckel>`
   - valfritt: `export OPENAI_MODEL=gpt-4o-mini`
+- Forberedd Gemini-provider:
+  - `export MULTI_AGENT_APP_LLM_PROVIDER=gemini`
+  - `export GEMINI_API_KEY=<din_nyckel>`
+  - valfritt: `export GEMINI_MODEL=gemini-1.5-flash`
 
 Om provider inte ar tillganglig (t.ex. saknad nyckel eller timeout) faller panelen automatiskt tillbaka till heuristik.
 I paneloutput visas detta tydligt via:
-- `Role generation mode: provider=... | enabled=... | available=...`
+- `Role generation mode: provider=... (model) | enabled=... | available=...`
 - rollrad per advisor: `Strateg [LLM]` eller `Strateg [heuristic fallback]`
 - `Fallback notes: ...` per roll nar LLM inte kunde anvandas (t.ex. parse/network/error)
 

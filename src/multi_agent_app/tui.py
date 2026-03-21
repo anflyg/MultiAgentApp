@@ -418,6 +418,7 @@ class MultiAgentTUI(App[None]):
         if isinstance(status_assessment, dict) and status_assessment:
             mode_value = status_assessment.get("decision_mode", "-")
             provider_name = llm_status.get("provider", "heuristic") if isinstance(llm_status, dict) else "heuristic"
+            provider_model = llm_status.get("model") if isinstance(llm_status, dict) else None
             provider_enabled = bool(llm_status.get("provider_enabled")) if isinstance(llm_status, dict) else False
             provider_available = bool(llm_status.get("provider_available")) if isinstance(llm_status, dict) else False
             fallback_text = (
@@ -429,7 +430,8 @@ class MultiAgentTUI(App[None]):
                 f"assessment: {alignment_label(status_assessment.get('alignment', '-'))}\n"
                 f"handling mode: {decision_mode_label(mode_value) if mode_value != '-' else '-'}\n"
                 f"reason: {status_assessment.get('reason', '-')}\n"
-                f"role generation: provider={provider_name} | enabled={'yes' if provider_enabled else 'no'} | "
+                f"role generation: provider={provider_name}"
+                f"{f' ({provider_model})' if provider_model else ''} | enabled={'yes' if provider_enabled else 'no'} | "
                 f"available={'yes' if provider_available else 'no'}\n"
                 f"fallback notes: {fallback_text}\n"
                 f"new decision likelihood: {likelihood_label(status_assessment.get('likely_requires_new_decision', '-'))}\n"
@@ -505,6 +507,7 @@ class MultiAgentTUI(App[None]):
         role_sources = llm_status.get("role_sources", {}) if isinstance(llm_status, dict) else {}
         fallback_reasons = llm_status.get("fallback_reasons", {}) if isinstance(llm_status, dict) else {}
         provider_name = llm_status.get("provider", "heuristic") if isinstance(llm_status, dict) else "heuristic"
+        provider_model = llm_status.get("model") if isinstance(llm_status, dict) else None
         provider_enabled = bool(llm_status.get("provider_enabled")) if isinstance(llm_status, dict) else False
         provider_available = bool(llm_status.get("provider_available")) if isinstance(llm_status, dict) else False
         output.write(f"Question: {panel_question.question_text}")
@@ -551,7 +554,8 @@ class MultiAgentTUI(App[None]):
         )
         output.write(
             "Role generation mode: "
-            f"provider={provider_name} | enabled={'yes' if provider_enabled else 'no'} | "
+            f"provider={provider_name}"
+            f"{f' ({provider_model})' if provider_model else ''} | enabled={'yes' if provider_enabled else 'no'} | "
             f"available={'yes' if provider_available else 'no'}"
         )
         if fallback_reasons:
