@@ -10,6 +10,8 @@ En enkel lokal multi-agent-app med Pydantic-modeller, SQLite-persistence och en 
 2. Uppgradera pip (frivilligt men rekommenderas): `python -m pip install --upgrade pip`
 3. Installera beroenden: `pip install -r requirements.txt`
 
+For snabb forsta anvandning: se [USER_GUIDE.md](USER_GUIDE.md).
+
 ## CLI
 
 - Demo-flode (oforandrat):
