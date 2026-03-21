@@ -76,11 +76,11 @@ def test_tui_build_question_detail_texts_uses_sections_when_available():
         "(panel analysis; private context)" in analysis_text
     )
     assert recommendation_text == "Proceed with staged rollout."
-    assert "alignment: clarification_needed" in status_text
-    assert "decision_mode: clarification_of_active_decision" in status_text
+    assert "assessment: Needs clarification before execution" in status_text
+    assert "handling mode: Clarify current decision before execution" in status_text
     assert "formal_next_step: Document clarification before execution." in status_text
     assert "suggested_next_step: Document owner and sequence." in status_text
-    assert "likely_requires_new_decision: probably" in status_text
+    assert "new decision likelihood: Probably" in status_text
 
 
 def test_tui_build_question_detail_texts_handles_missing_case():

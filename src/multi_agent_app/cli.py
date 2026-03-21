@@ -10,12 +10,15 @@ from .agents import BaseAgent, PlannerAgent, ReviewerAgent, WriterAgent
 from .orchestrator import OrchestrationError, Orchestrator
 from .panel import (
     active_advisor_roles,
+    alignment_label,
     assess_question_against_active_decisions,
     build_panel_outcome,
     build_panel_sections,
     build_context_packet,
     combined_recommendation,
+    decision_mode_label,
     default_advisor_roles,
+    likelihood_label,
     per_role_analysis,
     suggested_next_step,
 )
@@ -1520,13 +1523,15 @@ def main() -> None:
         else:
             print("- none")
 
-        print(f"Assessment: {assessment.alignment} ({assessment.reason})")
+        print(f"Assessment: {alignment_label(assessment.alignment)} ({assessment.reason})")
         outcome = build_panel_outcome(context, assessment)
-        print(f"Handling mode: {outcome.decision_mode}")
+        print(f"Handling mode: {decision_mode_label(outcome.decision_mode)}")
         print(f"Formal next step: {outcome.formal_next_step}")
         print(
             "Decision summary: "
-            f"alignment={assessment.alignment} | mode={outcome.decision_mode} | likely_new_decision={likely_new_decision}"
+            f"Assessment: {alignment_label(assessment.alignment)} | "
+            f"Mode: {decision_mode_label(outcome.decision_mode)} | "
+            f"New decision likelihood: {likelihood_label(likely_new_decision)}"
         )
         print(f"Decision context at a glance: {_context_signal_line(context)}")
         draft = _build_decision_candidate_draft(
@@ -1553,7 +1558,7 @@ def main() -> None:
         print(f"Operator: {by_agent['operator']}")
         print(f"Governance: {by_agent['governance']}")
         print(f"Combined recommendation: {combined}")
-        print(f"New decision likely?: {likely_new_decision}")
+        print(f"New decision likely?: {likelihood_label(likely_new_decision)}")
         print(f"Recommended next step: {next_step}")
         print(f"Saved question id: {panel_question.id}")
         return
@@ -1585,15 +1590,19 @@ def main() -> None:
             formal_next_step_text = assessment_payload.get("formal_next_step", analysis.suggested_next_step)
             print(
                 f"Assessment: "
-                f"{analysis.assessment_alignment} ({analysis.assessment_reason})"
+                f"{alignment_label(analysis.assessment_alignment)} ({analysis.assessment_reason})"
             )
-            print(f"Handling mode: {assessment_payload.get('decision_mode', '-')}")
+            decision_mode = assessment_payload.get("decision_mode", "-")
+            print(
+                f"Handling mode: "
+                f"{decision_mode_label(decision_mode) if decision_mode != '-' else '-'}"
+            )
             print(f"Formal next step: {formal_next_step_text}")
             print(
                 "Decision summary: "
-                f"alignment={analysis.assessment_alignment} | "
-                f"mode={assessment_payload.get('decision_mode', '-')} | "
-                f"likely_new_decision={analysis.likely_requires_new_decision}"
+                f"Assessment: {alignment_label(analysis.assessment_alignment)} | "
+                f"Mode: {decision_mode_label(decision_mode) if decision_mode != '-' else '-'} | "
+                f"New decision likelihood: {likelihood_label(analysis.likely_requires_new_decision)}"
             )
             relevant_context = sections.get("relevant_context", {})
             active_ids = relevant_context.get("active_decision_ids", []) if isinstance(relevant_context, dict) else []
@@ -1635,13 +1644,13 @@ def main() -> None:
                 + (" | ".join(analysis.challenge_points) if analysis.challenge_points else "none")
             )
             print(f"Combined recommendation: {analysis.combined_recommendation}")
-            print(f"New decision likely?: {analysis.likely_requires_new_decision}")
+            print(f"New decision likely?: {likelihood_label(analysis.likely_requires_new_decision)}")
             print(f"Recommended next step: {analysis.suggested_next_step}")
         else:
             print("Assessment: none")
             print("Key concerns: none")
             print("Combined recommendation: none")
-            print("New decision likely?: probably")
+            print("New decision likely?: Probably")
             print("Recommended next step: none")
         print(f"Strateg: {by_agent.get('strateg', '-')}")
         print(f"Analyst: {by_agent.get('analyst', '-')}")

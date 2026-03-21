@@ -89,6 +89,26 @@ _STOPWORDS = {
     "decision",
 }
 
+_ALIGNMENT_LABELS = {
+    "aligned": "Aligned with active direction",
+    "clarification_needed": "Needs clarification before execution",
+    "potential_deviation": "Potential deviation from active decisions",
+    "likely_new_decision_required": "Likely requires a new decision",
+}
+
+_MODE_LABELS = {
+    "execution_under_active_decision": "Execute under current active decision",
+    "clarification_of_active_decision": "Clarify current decision before execution",
+    "potential_deviation": "Exception/deviation handling needed",
+    "likely_new_decision_required": "New decision handling required",
+}
+
+_LIKELIHOOD_LABELS = {
+    "yes": "Yes",
+    "no": "No",
+    "probably": "Probably",
+}
+
 
 def _normalize(text: str) -> str:
     return " ".join(text.lower().strip().split())
@@ -105,6 +125,18 @@ def _contains_any(text: str, terms: list[str]) -> list[str]:
 def _keywords(text: str) -> set[str]:
     tokens = re.findall(r"[a-zåäö0-9]{3,}", _normalize(text))
     return {token for token in tokens if token not in _STOPWORDS}
+
+
+def alignment_label(alignment: str) -> str:
+    return _ALIGNMENT_LABELS.get(alignment, alignment.replace("_", " "))
+
+
+def decision_mode_label(mode: str) -> str:
+    return _MODE_LABELS.get(mode, mode.replace("_", " "))
+
+
+def likelihood_label(value: str) -> str:
+    return _LIKELIHOOD_LABELS.get(value, value.capitalize())
 
 
 def assess_question_against_active_decisions(

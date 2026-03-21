@@ -10,7 +10,7 @@ from textual.widgets import Button, Footer, Header, Input, RichLog, Select, Stat
 from .cli import (
     ask_decision_panel,
 )
-from .panel import build_panel_outcome
+from .panel import alignment_label, build_panel_outcome, decision_mode_label, likelihood_label
 from .storage import Storage
 
 class MultiAgentTUI(App[None]):
@@ -377,19 +377,20 @@ class MultiAgentTUI(App[None]):
 
         status_assessment = sections.get("decision_status_assessment", {})
         if isinstance(status_assessment, dict) and status_assessment:
+            mode_value = status_assessment.get("decision_mode", "-")
             status_text = (
-                f"alignment: {status_assessment.get('alignment', '-')}\n"
-                f"decision_mode: {status_assessment.get('decision_mode', '-')}\n"
+                f"assessment: {alignment_label(status_assessment.get('alignment', '-'))}\n"
+                f"handling mode: {decision_mode_label(mode_value) if mode_value != '-' else '-'}\n"
                 f"reason: {status_assessment.get('reason', '-')}\n"
-                f"likely_requires_new_decision: {status_assessment.get('likely_requires_new_decision', '-')}\n"
+                f"new decision likelihood: {likelihood_label(status_assessment.get('likely_requires_new_decision', '-'))}\n"
                 f"formal_next_step: {status_assessment.get('formal_next_step', '-')}\n"
                 f"suggested_next_step: {status_assessment.get('suggested_next_step', '-')}"
             )
         elif analysis is not None:
             status_text = (
-                f"alignment: {analysis.assessment_alignment}\n"
+                f"assessment: {alignment_label(analysis.assessment_alignment)}\n"
                 f"reason: {analysis.assessment_reason}\n"
-                f"likely_requires_new_decision: {analysis.likely_requires_new_decision}"
+                f"new decision likelihood: {likelihood_label(analysis.likely_requires_new_decision)}"
             )
         else:
             status_text = "No decision guidance available yet."
@@ -479,11 +480,12 @@ class MultiAgentTUI(App[None]):
             )
         )
         panel_outcome = build_panel_outcome(context, assessment)
-        output.write(f"Assessment: {assessment.alignment} ({assessment.reason})")
+        output.write(f"Assessment: {alignment_label(assessment.alignment)} ({assessment.reason})")
         output.write(
             "Decision summary: "
-            f"alignment={assessment.alignment} | mode={panel_outcome.decision_mode} | "
-            f"likely_new_decision={panel_outcome.likely_requires_new_decision}"
+            f"Assessment: {alignment_label(assessment.alignment)} | "
+            f"Mode: {decision_mode_label(panel_outcome.decision_mode)} | "
+            f"New decision likelihood: {likelihood_label(panel_outcome.likely_requires_new_decision)}"
         )
         output.write(
             "Decision context at a glance: "
@@ -500,7 +502,7 @@ class MultiAgentTUI(App[None]):
         output.write(f"Governance: {by_agent['governance']}")
         output.write(f"Combined recommendation: {combined}")
         output.write(f"Formal next step: {panel_outcome.formal_next_step}")
-        output.write(f"New decision likely?: {likely_new_decision}")
+        output.write(f"New decision likely?: {likelihood_label(likely_new_decision)}")
         output.write(f"Recommended next step: {next_step}")
         self._status("Panel response generated.")
         self._selected_question_id = panel_question.id

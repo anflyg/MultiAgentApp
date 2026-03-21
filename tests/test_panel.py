@@ -560,7 +560,7 @@ def test_panel_cli_outputs_manual_candidate_draft_for_new_decision_case(tmp_path
     )
     main()
     output = capsys.readouterr().out
-    assert "Handling mode: likely_new_decision_required" in output
+    assert "Handling mode: New decision handling required" in output
     assert "Decision candidate draft (manual):" in output
     assert "title: Expansion: decision update from panel question" in output
     assert "Manual action:" in output
@@ -592,7 +592,7 @@ def test_show_panel_question_outputs_manual_candidate_draft_for_deviation_case(
     )
     main()
     output = capsys.readouterr().out
-    assert "Handling mode: potential_deviation" in output
+    assert "Handling mode: Exception/deviation handling needed" in output
     assert "Decision candidate draft (manual):" in output
     assert "title: Ops: decision update from panel question" in output
 
