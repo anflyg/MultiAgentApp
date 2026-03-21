@@ -10,6 +10,7 @@ from textual.widgets import Button, Footer, Header, Input, RichLog, Select, Stat
 from .cli import (
     ask_decision_panel,
 )
+from .llm import role_generation_mode_label, summarize_fallback_notes, summarize_role_provider_map
 from .panel import alignment_label, build_panel_outcome, decision_mode_label, likelihood_label
 from .storage import Storage
 
@@ -342,6 +343,8 @@ class MultiAgentTUI(App[None]):
             if isinstance(llm_status, dict)
             else {}
         )
+        active_roles = llm_status.get("active_roles", []) if isinstance(llm_status, dict) else []
+        inactive_roles = llm_status.get("inactive_roles", []) if isinstance(llm_status, dict) else []
         fallback_reasons = (
             llm_status.get("fallback_reasons", {})
             if isinstance(llm_status, dict)
@@ -427,16 +430,12 @@ class MultiAgentTUI(App[None]):
             provider_enabled = bool(llm_status.get("provider_enabled")) if isinstance(llm_status, dict) else False
             provider_available = bool(llm_status.get("provider_available")) if isinstance(llm_status, dict) else False
             fallback_text = (
-                ", ".join(f"{role}={reason}" for role, reason in sorted(fallback_reasons.items()))
+                summarize_fallback_notes(fallback_reasons)
                 if fallback_reasons
                 else "-"
             )
             provider_map = (
-                ", ".join(
-                    f"{role}={cfg.get('provider', 'heuristic')}"
-                    f"{f'({cfg.get('model')})' if cfg.get('model') else ''}"
-                    for role, cfg in sorted(role_provider_config.items())
-                )
+                summarize_role_provider_map(role_provider_config)
                 if role_provider_config
                 else "-"
             )
@@ -444,10 +443,17 @@ class MultiAgentTUI(App[None]):
                 f"assessment: {alignment_label(status_assessment.get('alignment', '-'))}\n"
                 f"handling mode: {decision_mode_label(mode_value) if mode_value != '-' else '-'}\n"
                 f"reason: {status_assessment.get('reason', '-')}\n"
-                f"role generation: provider={provider_name}"
-                f"{f' ({provider_model})' if provider_model else ''} | enabled={'yes' if provider_enabled else 'no'} | "
-                f"available={'yes' if provider_available else 'no'}\n"
+                "role generation: "
+                + role_generation_mode_label(
+                    provider=provider_name,
+                    model=provider_model,
+                    enabled=provider_enabled,
+                    available=provider_available,
+                )
+                + "\n"
                 f"role providers: {provider_map}\n"
+                f"active advisors: {', '.join(active_roles) if active_roles else 'none'} | "
+                f"inactive: {', '.join(inactive_roles) if inactive_roles else 'none'}\n"
                 f"fallback notes: {fallback_text}\n"
                 f"new decision likelihood: {likelihood_label(status_assessment.get('likely_requires_new_decision', '-'))}\n"
                 f"formal_next_step: {status_assessment.get('formal_next_step', '-')}\n"
@@ -521,6 +527,8 @@ class MultiAgentTUI(App[None]):
         llm_status = status_payload.get("llm_status", {}) if isinstance(status_payload, dict) else {}
         role_sources = llm_status.get("role_sources", {}) if isinstance(llm_status, dict) else {}
         role_provider_config = llm_status.get("role_provider_config", {}) if isinstance(llm_status, dict) else {}
+        active_roles = set(llm_status.get("active_roles", []) if isinstance(llm_status, dict) else [])
+        inactive_roles = llm_status.get("inactive_roles", []) if isinstance(llm_status, dict) else []
         fallback_reasons = llm_status.get("fallback_reasons", {}) if isinstance(llm_status, dict) else {}
         provider_name = llm_status.get("provider", "heuristic") if isinstance(llm_status, dict) else "heuristic"
         provider_model = llm_status.get("model") if isinstance(llm_status, dict) else None
@@ -570,23 +578,26 @@ class MultiAgentTUI(App[None]):
         )
         output.write(
             "Role generation mode: "
-            f"provider={provider_name}"
-            f"{f' ({provider_model})' if provider_model else ''} | enabled={'yes' if provider_enabled else 'no'} | "
-            f"available={'yes' if provider_available else 'no'}"
+            + role_generation_mode_label(
+                provider=provider_name,
+                model=provider_model,
+                enabled=provider_enabled,
+                available=provider_available,
+            )
         )
         if role_provider_config:
             output.write(
-                "Role provider map: "
-                + ", ".join(
-                    f"{role}={cfg.get('provider', 'heuristic')}"
-                    f"{f'({cfg.get('model')})' if cfg.get('model') else ''}"
-                    for role, cfg in sorted(role_provider_config.items())
-                )
+                "Role provider map: " + summarize_role_provider_map(role_provider_config)
             )
+        output.write(
+            "Active advisor roles: "
+            + (", ".join(sorted(active_roles)) if active_roles else "none")
+            + " | Inactive: "
+            + (", ".join(inactive_roles) if inactive_roles else "none")
+        )
         if fallback_reasons:
             output.write(
-                "Fallback notes: "
-                + ", ".join(f"{role}={reason}" for role, reason in sorted(fallback_reasons.items()))
+                "Fallback notes: " + summarize_fallback_notes(fallback_reasons)
             )
         output.write(
             "Decision context at a glance: "
@@ -597,26 +608,15 @@ class MultiAgentTUI(App[None]):
             "Key concerns: "
             + (" | ".join(assessment.challenge_points) if assessment.challenge_points else "none")
         )
-        output.write(
-            "Strateg "
-            f"[{_ROLE_SOURCE_LABELS.get(role_sources.get('strateg', 'heuristic'), role_sources.get('strateg', 'heuristic'))}]: "
-            f"{by_agent['strateg']}"
-        )
-        output.write(
-            "Analyst "
-            f"[{_ROLE_SOURCE_LABELS.get(role_sources.get('analyst', 'heuristic'), role_sources.get('analyst', 'heuristic'))}]: "
-            f"{by_agent['analyst']}"
-        )
-        output.write(
-            "Operator "
-            f"[{_ROLE_SOURCE_LABELS.get(role_sources.get('operator', 'heuristic'), role_sources.get('operator', 'heuristic'))}]: "
-            f"{by_agent['operator']}"
-        )
-        output.write(
-            "Governance "
-            f"[{_ROLE_SOURCE_LABELS.get(role_sources.get('governance', 'heuristic'), role_sources.get('governance', 'heuristic'))}]: "
-            f"{by_agent['governance']}"
-        )
+        for role_name in ("strateg", "analyst", "operator", "governance"):
+            if role_name not in active_roles:
+                output.write(f"{role_name.capitalize()} [inactive]: not activated for this question")
+                continue
+            output.write(
+                f"{role_name.capitalize()} "
+                f"[{_ROLE_SOURCE_LABELS.get(role_sources.get(role_name, 'heuristic'), role_sources.get(role_name, 'heuristic'))}]: "
+                f"{by_agent.get(role_name, '-')}"
+            )
         output.write(f"Combined recommendation: {combined}")
         output.write(f"Formal next step: {panel_outcome.formal_next_step}")
         output.write(f"New decision likely?: {likelihood_label(likely_new_decision)}")

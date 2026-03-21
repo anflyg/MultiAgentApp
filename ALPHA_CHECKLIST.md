@@ -21,12 +21,14 @@ Denna checklista definierar nar appen kan raknas som **forsta alfa**.
   - användarvänliga labels (inte råa interna tokens)
   - tydlig recommendation + rekommenderat nästa steg
   - reasoning notes syns i läsbar form.
+  - aktivt valda advisor-roller och fallback-signalering syns tydligt.
 - [ ] Testsviten som krävs för alfa är groen:
   - `python -m pytest`
 
 ## Kända begränsningar (acceptabla i alfa)
 
-- Roller och panelbedömning är heuristiska och inte AI-genererade resonemang.
+- Roller och panelbedömning är regel-/heuristikbaserade med valfritt LLM-stod (med robust fallback).
+- En intern roll-router avgor vilka advisor-roller som aktiveras per fraga; ingen femte synlig agent finns i produkten.
 - Inget automatiskt beslutsskapande: systemet föreslår nästa steg men formaliserar inte beslut.
 - Ingen avancerad sök/filter i historik utover enkla listkommandon.
 - Ingen webb-UI; fokus är CLI + Textual TUI.

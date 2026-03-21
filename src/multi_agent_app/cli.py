@@ -12,6 +12,9 @@ from .llm import (
     apply_role_llm_overrides,
     provider_enabled_from_env,
     provider_from_env,
+    role_generation_mode_label,
+    summarize_fallback_notes,
+    summarize_role_provider_map,
 )
 from .orchestrator import OrchestrationError, Orchestrator
 from .panel import (
@@ -26,6 +29,7 @@ from .panel import (
     default_advisor_roles,
     likelihood_label,
     per_role_analysis,
+    route_active_advisor_roles,
     suggested_next_step,
 )
 from .storage import Storage
@@ -102,6 +106,23 @@ def _default_agents() -> Dict[str, BaseAgent]:
 
 def _role_response_source_label(source: str) -> str:
     return _ROLE_RESPONSE_SOURCE_LABEL.get(source, source)
+
+
+def _print_advisor_response_line(
+    *,
+    role_name: str,
+    by_agent: dict[str, str],
+    role_sources: dict[str, str],
+    active_roles: set[str],
+) -> None:
+    label = role_name.capitalize()
+    if role_name not in active_roles:
+        print(f"{label} [inactive]: not activated for this question")
+        return
+    print(
+        f"{label} [{_role_response_source_label(role_sources.get(role_name, 'heuristic'))}]: "
+        f"{by_agent.get(role_name, '-')}"
+    )
 
 
 def _reasoning_signature(
@@ -907,7 +928,15 @@ def ask_decision_panel(
             normalized_question, context["active_decisions"]
         )
 
-        roles = active_advisor_roles(default_advisor_roles())
+        all_roles = active_advisor_roles(default_advisor_roles())
+        roles = route_active_advisor_roles(
+            normalized_question,
+            context,
+            assessment,
+            roles=all_roles,
+        )
+        active_role_names = [role.name for role in roles]
+        inactive_role_names = [role.name for role in all_roles if role.name not in active_role_names]
         heuristic_role_outputs = per_role_analysis(
             question=normalized_question,
             context=context,
@@ -966,6 +995,8 @@ def ask_decision_panel(
             "role_provider_config": role_provider_config,
             "role_provider_available": role_provider_available,
             "role_sources": role_sources,
+            "active_roles": active_role_names,
+            "inactive_roles": inactive_role_names,
             "llm_roles": [role for role, source in role_sources.items() if source == "llm"],
             "fallback_roles": [role for role, source in role_sources.items() if source != "llm"],
             "fallback_reasons": fallback_reasons,
@@ -1660,6 +1691,8 @@ def main() -> None:
             if isinstance(llm_status, dict)
             else {}
         )
+        active_roles = set(llm_status.get("active_roles", []) if isinstance(llm_status, dict) else [])
+        inactive_roles = llm_status.get("inactive_roles", []) if isinstance(llm_status, dict) else []
         fallback_reasons = (
             llm_status.get("fallback_reasons", {})
             if isinstance(llm_status, dict)
@@ -1715,20 +1748,23 @@ def main() -> None:
         )
         print(
             "Role generation mode: "
-            f"provider={provider_name}"
-            f"{f' ({provider_model})' if provider_model else ''} | enabled={'yes' if provider_enabled else 'no'} | "
-            f"available={'yes' if provider_available else 'no'}"
+            + role_generation_mode_label(
+                provider=provider_name,
+                model=provider_model,
+                enabled=provider_enabled,
+                available=provider_available,
+            )
         )
         if role_provider_config:
-            role_map = ", ".join(
-                f"{role}={cfg.get('provider', 'heuristic')}"
-                f"{f'({cfg.get('model')})' if cfg.get('model') else ''}"
-                for role, cfg in sorted(role_provider_config.items())
-            )
-            print(f"Role provider map: {role_map}")
+            print(f"Role provider map: {summarize_role_provider_map(role_provider_config)}")
+        print(
+            "Active advisor roles: "
+            + (", ".join(sorted(active_roles)) if active_roles else "none")
+            + " | Inactive: "
+            + (", ".join(inactive_roles) if inactive_roles else "none")
+        )
         if fallback_reasons:
-            compact = ", ".join(f"{role}={reason}" for role, reason in sorted(fallback_reasons.items()))
-            print(f"Fallback notes: {compact}")
+            print(f"Fallback notes: {summarize_fallback_notes(fallback_reasons)}")
         print(f"Decision context at a glance: {_context_signal_line(context)}")
         draft = _build_decision_candidate_draft(
             question_text=panel_question.question_text,
@@ -1749,21 +1785,29 @@ def main() -> None:
         else:
             print("- none")
 
-        print(
-            f"Strateg [{_role_response_source_label(role_sources.get('strateg', 'heuristic'))}]: "
-            f"{by_agent['strateg']}"
+        _print_advisor_response_line(
+            role_name="strateg",
+            by_agent=by_agent,
+            role_sources=role_sources,
+            active_roles=active_roles,
         )
-        print(
-            f"Analyst [{_role_response_source_label(role_sources.get('analyst', 'heuristic'))}]: "
-            f"{by_agent['analyst']}"
+        _print_advisor_response_line(
+            role_name="analyst",
+            by_agent=by_agent,
+            role_sources=role_sources,
+            active_roles=active_roles,
         )
-        print(
-            f"Operator [{_role_response_source_label(role_sources.get('operator', 'heuristic'))}]: "
-            f"{by_agent['operator']}"
+        _print_advisor_response_line(
+            role_name="operator",
+            by_agent=by_agent,
+            role_sources=role_sources,
+            active_roles=active_roles,
         )
-        print(
-            f"Governance [{_role_response_source_label(role_sources.get('governance', 'heuristic'))}]: "
-            f"{by_agent['governance']}"
+        _print_advisor_response_line(
+            role_name="governance",
+            by_agent=by_agent,
+            role_sources=role_sources,
+            active_roles=active_roles,
         )
         print(f"Combined recommendation: {combined}")
         print(f"New decision likely?: {likelihood_label(likely_new_decision)}")
@@ -1797,6 +1841,8 @@ def main() -> None:
         by_agent = {response.agent_name: response.response_text for response in responses}
         role_sources: dict[str, str] = {}
         role_provider_config: dict[str, dict[str, str | None]] = {}
+        active_roles: set[str] = set()
+        inactive_roles: list[str] = []
         fallback_reasons: dict[str, str] = {}
         provider_name = "heuristic"
         provider_model = None
@@ -1820,6 +1866,8 @@ def main() -> None:
             if isinstance(llm_status, dict):
                 role_sources = llm_status.get("role_sources", {}) or {}
                 role_provider_config = llm_status.get("role_provider_config", {}) or {}
+                active_roles = set(llm_status.get("active_roles", []) or [])
+                inactive_roles = llm_status.get("inactive_roles", []) or []
                 fallback_reasons = llm_status.get("fallback_reasons", {}) or {}
                 provider_name = llm_status.get("provider", "heuristic")
                 provider_model = llm_status.get("model")
@@ -1844,20 +1892,23 @@ def main() -> None:
             )
             print(
                 "Role generation mode: "
-                f"provider={provider_name}"
-                f"{f' ({provider_model})' if provider_model else ''} | enabled={'yes' if provider_enabled else 'no'} | "
-                f"available={'yes' if provider_available else 'no'}"
+                + role_generation_mode_label(
+                    provider=provider_name,
+                    model=provider_model,
+                    enabled=provider_enabled,
+                    available=provider_available,
+                )
             )
             if role_provider_config:
-                role_map = ", ".join(
-                    f"{role}={cfg.get('provider', 'heuristic')}"
-                    f"{f'({cfg.get('model')})' if cfg.get('model') else ''}"
-                    for role, cfg in sorted(role_provider_config.items())
-                )
-                print(f"Role provider map: {role_map}")
+                print(f"Role provider map: {summarize_role_provider_map(role_provider_config)}")
+            print(
+                "Active advisor roles: "
+                + (", ".join(sorted(active_roles)) if active_roles else "none")
+                + " | Inactive: "
+                + (", ".join(inactive_roles) if inactive_roles else "none")
+            )
             if fallback_reasons:
-                compact = ", ".join(f"{role}={reason}" for role, reason in sorted(fallback_reasons.items()))
-                print(f"Fallback notes: {compact}")
+                print(f"Fallback notes: {summarize_fallback_notes(fallback_reasons)}")
             relevant_context = sections.get("relevant_context", {})
             active_ids = relevant_context.get("active_decision_ids", []) if isinstance(relevant_context, dict) else []
             historical_ids = (
@@ -1906,21 +1957,29 @@ def main() -> None:
             print("Combined recommendation: none")
             print("New decision likely?: Probably")
             print("Recommended next step: none")
-        print(
-            f"Strateg [{_role_response_source_label(role_sources.get('strateg', 'heuristic'))}]: "
-            f"{by_agent.get('strateg', '-')}"
+        _print_advisor_response_line(
+            role_name="strateg",
+            by_agent=by_agent,
+            role_sources=role_sources,
+            active_roles=active_roles,
         )
-        print(
-            f"Analyst [{_role_response_source_label(role_sources.get('analyst', 'heuristic'))}]: "
-            f"{by_agent.get('analyst', '-')}"
+        _print_advisor_response_line(
+            role_name="analyst",
+            by_agent=by_agent,
+            role_sources=role_sources,
+            active_roles=active_roles,
         )
-        print(
-            f"Operator [{_role_response_source_label(role_sources.get('operator', 'heuristic'))}]: "
-            f"{by_agent.get('operator', '-')}"
+        _print_advisor_response_line(
+            role_name="operator",
+            by_agent=by_agent,
+            role_sources=role_sources,
+            active_roles=active_roles,
         )
-        print(
-            f"Governance [{_role_response_source_label(role_sources.get('governance', 'heuristic'))}]: "
-            f"{by_agent.get('governance', '-')}"
+        _print_advisor_response_line(
+            role_name="governance",
+            by_agent=by_agent,
+            role_sources=role_sources,
+            active_roles=active_roles,
         )
         print(f"Key reasoning notes: {len(reasoning_items)}")
         print(f"Reasoning summary: {_reasoning_signal_line(reasoning_items)}")

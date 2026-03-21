@@ -11,6 +11,9 @@ from multi_agent_app.llm import (
     apply_role_llm_overrides,
     provider_from_env,
     resolve_role_provider_and_model,
+    role_generation_mode_label,
+    summarize_fallback_notes,
+    summarize_role_provider_map,
 )
 from multi_agent_app.panel import default_advisor_roles
 from multi_agent_app.storage import Storage
@@ -106,8 +109,8 @@ def test_ask_decision_panel_accepts_provider_and_overrides_role_text(tmp_path):
         topic="Ops",
         llm_provider=provider,
     )
-    assert len(responses) == 4
-    assert set(provider.calls) == {"strateg", "analyst", "operator", "governance"}
+    assert len(responses) >= 2
+    assert set(provider.calls) == {"operator", "governance"}
     assert all("(LLM):" in response.response_text for response in responses)
     storage = Storage(db_path=str(db_path))
     try:
@@ -117,7 +120,8 @@ def test_ask_decision_panel_accepts_provider_and_overrides_role_text(tmp_path):
         assert llm_status.get("provider") == "fake"
         assert llm_status.get("provider_enabled") is True
         assert llm_status.get("provider_available") is True
-        assert set(llm_status.get("llm_roles", [])) == {"strateg", "analyst", "operator", "governance"}
+        assert set(llm_status.get("llm_roles", [])) == {"operator", "governance"}
+        assert set(llm_status.get("active_roles", [])) == {"operator", "governance"}
         assert llm_status.get("fallback_reasons", {}) == {}
     finally:
         storage.close()
@@ -141,6 +145,16 @@ def test_extract_openai_error_returns_message():
 def test_extract_gemini_text_returns_candidate_text():
     raw = '{"candidates":[{"content":{"parts":[{"text":"Gemini role answer"}]}}]}'
     assert _extract_gemini_text(raw) == "Gemini role answer"
+
+
+def test_resolve_role_provider_and_model_uses_new_gemini_default(monkeypatch):
+    monkeypatch.setenv("MULTI_AGENT_APP_LLM_PROVIDER", "gemini")
+    monkeypatch.delenv("GEMINI_MODEL", raising=False)
+    monkeypatch.delenv("GEMINI_MODEL_STRATEG", raising=False)
+
+    provider_name, model = resolve_role_provider_and_model("strateg")
+    assert provider_name == "gemini"
+    assert model == "gemini-2.0-flash"
 
 
 def test_resolve_role_provider_and_model_prefers_role_override(monkeypatch):
@@ -188,3 +202,37 @@ def test_apply_role_llm_overrides_role_specific_heuristic_override(monkeypatch):
     assert role_provider_config["strateg"]["provider"] == "heuristic"
     assert fallback_reasons["strateg"] == "heuristic_configured"
     assert fallback_reasons["analyst"] == "provider_unavailable"
+
+
+def test_summarize_helpers_keep_status_compact():
+    fallback = {
+        "strateg": "network_error: URLError",
+        "analyst": "Invalid API key provided for this request",
+        "operator": "http_429",
+        "governance": "provider_unavailable",
+    }
+    notes = summarize_fallback_notes(fallback)
+    assert "strateg=network" in notes
+    assert "analyst=auth" in notes
+    assert "operator=rate_limited" in notes
+    assert "governance=no_api_key" in notes
+
+    provider_map = summarize_role_provider_map(
+        {
+            "strateg": {"provider": "openai", "model": "gpt-4o-mini"},
+            "analyst": {"provider": "gemini", "model": "gemini-2.0-flash"},
+            "operator": {"provider": "heuristic", "model": None},
+            "governance": {"provider": "openai", "model": "gpt-4.1-mini-super-long-model-name"},
+        }
+    )
+    assert "strateg=openai/gpt-4o-mini" in provider_map
+    assert "operator=heuristic" in provider_map
+    assert "governance=openai/gpt-4.1-mini-super-long..." in provider_map
+
+    mode = role_generation_mode_label(
+        provider="mixed",
+        model="mixed",
+        enabled=True,
+        available=True,
+    )
+    assert "provider=mixed-per-role (model per role)" in mode

@@ -80,7 +80,7 @@ Panelen kor heuristiskt som standard. Ett litet provider-lager finns nu som grun
 - Forberedd Gemini-provider:
   - `export MULTI_AGENT_APP_LLM_PROVIDER=gemini`
   - `export GEMINI_API_KEY=<din_nyckel>`
-  - valfritt: `export GEMINI_MODEL=gemini-1.5-flash`
+  - valfritt: `export GEMINI_MODEL=gemini-2.0-flash`
 
 Rollspecifika overstyrningar (valfritt):
 - provider per roll:
@@ -96,8 +96,20 @@ Om provider inte ar tillganglig (t.ex. saknad nyckel eller timeout) faller panel
 I paneloutput visas detta tydligt via:
 - `Role generation mode: provider=... (model) | enabled=... | available=...`
 - `Role provider map: strateg=openai(...), analyst=gemini(...), ...`
+- `Active advisor roles: ... | Inactive: ...` (intern roll-router per fraga)
 - rollrad per advisor: `Strateg [LLM]` eller `Strateg [heuristic fallback]`
-- `Fallback notes: ...` per roll nar LLM inte kunde anvandas (t.ex. parse/network/error)
+- `Fallback notes: ...` med korta orsaker per roll (t.ex. `network`, `auth`, `quota`, `empty_response`)
+
+## Intern roll-router (ingen ny synlig agent)
+
+Panelens produktmodell ar fortfarande fyra radgivarperspektiv:
+- strateg
+- analyst
+- operator
+- governance
+
+En liten intern regelbaserad router valjer nu vilka roller som ar aktiva per fraga, for att balansera kvalitet, kostnad och hastighet.
+Detta ar inte en femte synlig agent i UI.
 
 ## Snabb demo fran tomt lage
 

@@ -16,6 +16,7 @@ from multi_agent_app.panel import (
     combined_recommendation,
     default_advisor_roles,
     per_role_analysis,
+    route_active_advisor_roles,
     suggested_next_step,
 )
 from multi_agent_app.storage import Storage
@@ -112,6 +113,28 @@ def test_per_role_analysis_role_outputs_are_differentiated():
     assert "governance status" in outputs["governance"].lower()
 
 
+def test_role_router_prioritizes_operator_and_governance_for_clarification():
+    roles = default_advisor_roles()
+    context = {
+        "active_decisions": [models.Decision(session_id="S1", title="Direction", topic="Ops", decision_text="Do X")],
+        "historical_decisions": [],
+        "open_candidates": [],
+        "open_suggestions": [],
+        "decision_links": [],
+    }
+    assessment = models.DecisionAlignmentAssessment(
+        alignment="clarification_needed",
+        reason="Needs clarification.",
+    )
+    routed = route_active_advisor_roles(
+        question="How should we execute this?",
+        context=context,
+        assessment=assessment,
+        roles=roles,
+    )
+    assert [role.name for role in routed] == ["operator", "governance"]
+
+
 def test_retrieval_returns_active_and_superseded_by_topic(tmp_path):
     db_path = tmp_path / "panel_retrieval.db"
     session = create_session(str(db_path), "Panel Retrieval")
@@ -153,7 +176,7 @@ def test_ask_decision_panel_with_relevant_decisions_stores_question_and_response
         "potential_deviation",
         "likely_new_decision_required",
     }
-    assert len(responses) == 4
+    assert len(responses) >= 2
     assert context["active_decisions"]
     assert combined
     assert likely_new_decision in {"yes", "no", "probably"}
@@ -167,7 +190,7 @@ def test_ask_decision_panel_with_relevant_decisions_stores_question_and_response
         context_decision_ids = storage.list_panel_question_context_decision_ids(question.id)
         stored_case = storage.get_panel_question_case(question.id)
         assert stored_question is not None
-        assert len(stored_responses) == 4
+        assert len(stored_responses) >= 2
         assert stored_analysis is not None
         assert stored_analysis.combined_recommendation == combined
         assert stored_analysis.suggested_next_step == next_step
@@ -175,8 +198,6 @@ def test_ask_decision_panel_with_relevant_decisions_stores_question_and_response
         assert stored_analysis.question_interpretation
         assert stored_analysis.relevant_context
         assert stored_analysis.per_role_analysis
-        assert "strateg" in stored_analysis.per_role_analysis
-        assert "analyst" in stored_analysis.per_role_analysis
         assert "operator" in stored_analysis.per_role_analysis
         assert "governance" in stored_analysis.per_role_analysis
         assert isinstance(stored_analysis.tensions, list)
@@ -195,7 +216,7 @@ def test_ask_decision_panel_with_relevant_decisions_stores_question_and_response
         assert stored_case is not None
         assert stored_case["question"].id == question.id
         assert stored_case["analysis"] is not None
-        assert len(stored_case["responses"]) == 4
+        assert len(stored_case["responses"]) >= 2
         assert stored_case["sections"]["question_interpretation"]
         assert stored_case["sections"]["relevant_context"]
         assert stored_case["sections"]["per_role_analysis"]
@@ -488,10 +509,11 @@ def test_ask_decision_panel_output_includes_required_sections(tmp_path, capsys, 
     assert "Assessment:" in output
     assert "Decision summary:" in output
     assert "Role generation mode:" in output
+    assert "Active advisor roles:" in output
     assert "Decision context at a glance:" in output
     assert "Key concerns:" in output
-    assert "Strateg [heuristic fallback]:" in output
-    assert "Analyst [heuristic fallback]:" in output
+    assert "Strateg [inactive]: not activated for this question" in output
+    assert "Analyst [inactive]: not activated for this question" in output
     assert "Operator [heuristic fallback]:" in output
     assert "Governance [heuristic fallback]:" in output
     assert "Combined recommendation:" in output
@@ -530,9 +552,10 @@ def test_show_panel_question_command_loads_saved_case(tmp_path, capsys, monkeypa
     assert "Assessment:" in output
     assert "Decision summary:" in output
     assert "Role generation mode:" in output
+    assert "Active advisor roles:" in output
     assert "Decision context at a glance:" in output
     assert "Combined recommendation:" in output
-    assert "Strateg [heuristic fallback]:" in output
+    assert "Strateg [inactive]: not activated for this question" in output
     assert "Key reasoning notes:" in output
     assert "Reasoning summary:" in output
     assert "Next steps:" in output

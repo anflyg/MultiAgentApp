@@ -14,7 +14,7 @@ except ImportError:  # pragma: no cover - handled by urllib fallback.
 
 _SUPPORTED_PROVIDERS = {"openai", "gemini", "heuristic"}
 _OPENAI_DEFAULT_MODEL = "gpt-4o-mini"
-_GEMINI_DEFAULT_MODEL = "gemini-1.5-flash"
+_GEMINI_DEFAULT_MODEL = "gemini-2.0-flash"
 
 
 class LLMProvider(Protocol):
@@ -214,7 +214,7 @@ class GeminiProvider:
         self,
         *,
         api_key: str | None,
-        model: str = "gemini-1.5-flash",
+        model: str = _GEMINI_DEFAULT_MODEL,
         timeout_seconds: float = 8.0,
     ) -> None:
         self.api_key = (api_key or "").strip()
@@ -326,27 +326,27 @@ def _build_role_prompt(
     assessment: models.DecisionAlignmentAssessment,
     fallback_response: str,
 ) -> str:
-        active_count = len(context.get("active_decisions", []) if isinstance(context, dict) else [])
-        candidate_count = len(context.get("open_candidates", []) if isinstance(context, dict) else [])
-        suggestion_count = len(context.get("open_suggestions", []) if isinstance(context, dict) else [])
-        challenge_points = assessment.challenge_points[:3]
-        challenge_text = "; ".join(challenge_points) if challenge_points else "none"
-        return (
-            "You are generating one role-specific advisory line for a leadership decision panel.\n"
-            f"Role: {role.name}\n"
-            f"Role purpose: {role.purpose}\n"
-            f"Output style: {role.output_style}\n"
-            f"Question: {question}\n"
-            f"Assessment alignment: {assessment.alignment}\n"
-            f"Assessment reason: {assessment.reason}\n"
-            f"Challenge points: {challenge_text}\n"
-            f"Context counts: active_decisions={active_count}, open_candidates={candidate_count}, open_suggestions={suggestion_count}\n"
-            "Constraints:\n"
-            "- Keep it concise (max 3 sentences).\n"
-            "- Focus on this role only; avoid repeating generic summary text.\n"
-            "- If uncertain, stay conservative and suggest a clear next control/action.\n"
-            f"Heuristic fallback reference: {fallback_response}\n"
-        )
+    active_count = len(context.get("active_decisions", []) if isinstance(context, dict) else [])
+    candidate_count = len(context.get("open_candidates", []) if isinstance(context, dict) else [])
+    suggestion_count = len(context.get("open_suggestions", []) if isinstance(context, dict) else [])
+    challenge_points = assessment.challenge_points[:3]
+    challenge_text = "; ".join(challenge_points) if challenge_points else "none"
+    return (
+        "You are generating one role-specific advisory line for a leadership decision panel.\n"
+        f"Role: {role.name}\n"
+        f"Role purpose: {role.purpose}\n"
+        f"Output style: {role.output_style}\n"
+        f"Question: {question}\n"
+        f"Assessment alignment: {assessment.alignment}\n"
+        f"Assessment reason: {assessment.reason}\n"
+        f"Challenge points: {challenge_text}\n"
+        f"Context counts: active_decisions={active_count}, open_candidates={candidate_count}, open_suggestions={suggestion_count}\n"
+        "Constraints:\n"
+        "- Keep it concise (max 3 sentences).\n"
+        "- Focus on this role only; avoid repeating generic summary text.\n"
+        "- If uncertain, stay conservative and suggest a clear next control/action.\n"
+        f"Heuristic fallback reference: {fallback_response}\n"
+    )
 
 
 def _extract_openai_text(raw_body: str) -> str | None:
@@ -499,6 +499,100 @@ def _provider_from_selection(provider_name: str, model: str | None) -> LLMProvid
             model=model or _GEMINI_DEFAULT_MODEL,
         )
     return NullLLMProvider()
+
+
+def _compact_reason(reason: str | None, max_length: int = 40) -> str:
+    text = (reason or "").strip()
+    if not text:
+        return "unknown"
+    lower = text.lower()
+    if text == "heuristic_configured":
+        return "heuristic"
+    if text == "provider_unavailable":
+        return "no_api_key"
+    if lower.startswith("network_error"):
+        return "network"
+    if text == "empty_or_unparseable_response":
+        return "empty_response"
+    if "quota" in lower:
+        return "quota"
+    if "rate limit" in lower or "http_429" in lower:
+        return "rate_limited"
+    if "api key" in lower or "http_401" in lower or "http_403" in lower or "permission" in lower:
+        return "auth"
+    if lower.startswith("http_5"):
+        return "provider_error"
+    if lower.startswith("http_4"):
+        return "request_error"
+    if len(text) <= max_length:
+        return text
+    return text[: max_length - 3].rstrip() + "..."
+
+
+def summarize_fallback_notes(
+    fallback_reasons: Mapping[str, str],
+    *,
+    max_items: int = 4,
+) -> str:
+    if not fallback_reasons:
+        return "-"
+    pairs = sorted((role, _compact_reason(reason)) for role, reason in fallback_reasons.items())
+    visible = [f"{role}={reason}" for role, reason in pairs[:max_items]]
+    remaining = len(pairs) - len(visible)
+    if remaining > 0:
+        visible.append(f"+{remaining} more")
+    return ", ".join(visible)
+
+
+def _compact_model_name(model: str | None, max_length: int = 26) -> str | None:
+    if not model:
+        return None
+    text = model.strip()
+    if len(text) <= max_length:
+        return text
+    return text[: max_length - 3].rstrip() + "..."
+
+
+def summarize_role_provider_map(
+    role_provider_config: Mapping[str, Mapping[str, str | None]],
+    *,
+    max_items: int = 4,
+) -> str:
+    if not role_provider_config:
+        return "-"
+    pairs: list[str] = []
+    for role, cfg in sorted(role_provider_config.items()):
+        provider = (cfg.get("provider") or "heuristic").strip()
+        model = _compact_model_name(cfg.get("model"))
+        if model:
+            pairs.append(f"{role}={provider}/{model}")
+        else:
+            pairs.append(f"{role}={provider}")
+    visible = pairs[:max_items]
+    remaining = len(pairs) - len(visible)
+    if remaining > 0:
+        visible.append(f"+{remaining} more")
+    return ", ".join(visible)
+
+
+def role_generation_mode_label(
+    *,
+    provider: str,
+    model: str | None,
+    enabled: bool,
+    available: bool,
+) -> str:
+    provider_text = provider
+    if provider == "mixed":
+        provider_text = "mixed-per-role"
+    if model == "mixed":
+        provider_text = f"{provider_text} (model per role)"
+    elif model:
+        provider_text = f"{provider_text} ({_compact_model_name(model)})"
+    return (
+        f"provider={provider_text} | enabled={'yes' if enabled else 'no'} | "
+        f"available={'yes' if available else 'no'}"
+    )
 
 
 def provider_from_env() -> LLMProvider:

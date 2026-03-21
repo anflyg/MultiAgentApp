@@ -399,6 +399,34 @@ def active_advisor_roles(roles: list[models.AdvisorRole] | None = None) -> list[
     return [role for role in (roles or default_advisor_roles()) if role.active]
 
 
+def route_active_advisor_roles(
+    question: str,
+    context: PanelContext,
+    assessment: models.DecisionAlignmentAssessment,
+    roles: list[models.AdvisorRole] | None = None,
+) -> list[models.AdvisorRole]:
+    """Internal role router used to keep panel responses focused per question type."""
+    available = active_advisor_roles(roles)
+    by_name = {role.name: role for role in available}
+
+    if assessment.alignment == "likely_new_decision_required":
+        selected_names = {"strateg", "analyst", "operator", "governance"}
+    elif assessment.alignment == "potential_deviation":
+        selected_names = {"strateg", "analyst", "governance"}
+    elif assessment.alignment == "clarification_needed":
+        if context["active_decisions"]:
+            selected_names = {"operator", "governance"}
+        else:
+            selected_names = {"strateg", "analyst", "operator", "governance"}
+    else:  # aligned
+        selected_names = {"operator", "governance"}
+
+    routed = [by_name[name] for name in ("strateg", "analyst", "operator", "governance") if name in selected_names and name in by_name]
+    if routed:
+        return routed
+    return available[:1]
+
+
 def per_role_analysis(
     question: str,
     context: PanelContext,
