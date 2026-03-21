@@ -16,6 +16,7 @@ from multi_agent_app.panel import (
     combined_recommendation,
     default_advisor_roles,
     per_role_analysis,
+    suggested_next_step,
 )
 from multi_agent_app.storage import Storage
 
@@ -413,6 +414,48 @@ def test_combined_recommendation_is_action_plus_reason():
     assert "Why:" in rec
     assert "missing clarification for execution details" in rec
     assert "risk/uncertainty requires explicit handling" in rec
+
+
+def test_suggested_next_step_is_operational_per_mode():
+    active_decision = models.Decision(session_id="S1", title="D1", topic="Ops", decision_text="Do X")
+    base_context = {
+        "active_decisions": [active_decision],
+        "historical_decisions": [],
+        "open_candidates": [],
+        "open_suggestions": [],
+        "decision_links": [],
+    }
+
+    clarification = models.DecisionAlignmentAssessment(
+        alignment="clarification_needed",
+        reason="Need scope clarification.",
+    )
+    clarification_step = suggested_next_step("How execute?", base_context, clarification)
+    assert "Document a clarification note against active decision" in clarification_step
+    assert "owner" in clarification_step.lower()
+
+    deviation = models.DecisionAlignmentAssessment(
+        alignment="potential_deviation",
+        reason="Potential deviation.",
+    )
+    deviation_step = suggested_next_step("Can we deviate?", base_context, deviation)
+    assert "Pause scope changes" in deviation_step
+    assert "Open/update a decision candidate" in deviation_step
+
+    no_active_context = {
+        "active_decisions": [],
+        "historical_decisions": [],
+        "open_candidates": [],
+        "open_suggestions": [],
+        "decision_links": [],
+    }
+    new_decision_needed = models.DecisionAlignmentAssessment(
+        alignment="clarification_needed",
+        reason="No active baseline.",
+    )
+    new_decision_step = suggested_next_step("What now?", no_active_context, new_decision_needed)
+    assert "Pause implementation changes" in new_decision_step
+    assert "Create a new decision candidate" in new_decision_step
 
 
 def test_ask_decision_panel_output_includes_required_sections(tmp_path, capsys, monkeypatch):

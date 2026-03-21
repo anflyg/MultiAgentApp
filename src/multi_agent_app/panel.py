@@ -477,17 +477,43 @@ def combined_recommendation(
 def suggested_next_step(
     question: str, context: PanelContext, assessment: models.DecisionAlignmentAssessment
 ) -> str:
-    if not context["active_decisions"]:
-        return "Create a decision candidate and run confirmation."
-    if assessment.alignment == "likely_new_decision_required":
-        return "Create a new decision candidate describing the intended deviation and submit for confirmation."
-    if assessment.alignment == "potential_deviation":
-        return "Create an explicit clarification/exception candidate before changing execution direction."
+    mode = decision_mode(context, assessment)
+    active_ids = [decision.id for decision in context["active_decisions"]]
+    primary_active = active_ids[0] if active_ids else None
+
+    if mode == "likely_new_decision_required":
+        if context["open_candidates"]:
+            return (
+                "Pause implementation changes. Review the newest open decision candidate for this topic and either "
+                "confirm or replace it with a new candidate that documents exception rationale."
+            )
+        return (
+            "Pause implementation changes. Create a new decision candidate with explicit deviation rationale, "
+            "impacted active decisions, and proposed owner; then submit for confirmation."
+        )
+    if mode == "potential_deviation":
+        return (
+            "Pause scope changes and capture written exception rationale (what changes, why, impact on active "
+            "decisions). Open/update a decision candidate before any execution change."
+        )
+    if mode == "clarification_of_active_decision":
+        return (
+            f"Document a clarification note against active decision {primary_active} with scope boundaries, owner, "
+            "and sequencing; then proceed only within that clarified scope."
+        )
     if context["open_suggestions"]:
-        return "List and resolve open decision suggestions for this topic."
+        return (
+            "Review open decision suggestions first, decide accept/dismiss for each, and map resulting work to the "
+            "active decision owner before execution."
+        )
     if context["open_candidates"]:
-        return "Confirm or dismiss open decision candidates for this topic."
-    return "Assign implementation owner for the active decision set."
+        return (
+            "Review open decision candidates first; confirm or dismiss them before starting new implementation work."
+        )
+    return (
+        f"Map this work to active decision {primary_active}, assign one implementation owner, and execute in a "
+        "sequenced plan."
+    )
 
 
 def question_interpretation(
