@@ -7,6 +7,11 @@ from urllib import error, request
 
 from . import models
 
+try:
+    import requests
+except ImportError:  # pragma: no cover - handled by urllib fallback.
+    requests = None
+
 
 class LLMProvider(Protocol):
     name: str
@@ -127,6 +132,28 @@ class OpenAIChatProvider:
         return None
 
     def _post_json(self, url: str, payload: dict[str, object]) -> str | None:
+        if requests is not None:
+            try:
+                resp = requests.post(
+                    url,
+                    json=payload,
+                    headers={
+                        "Authorization": f"Bearer {self.api_key}",
+                        "Content-Type": "application/json",
+                        "Accept": "application/json",
+                        "User-Agent": "MultiAgentApp/alpha",
+                    },
+                    timeout=self.timeout_seconds,
+                )
+                if resp.status_code >= 400:
+                    msg = _extract_openai_error(resp.text) or f"http_{resp.status_code}"
+                    self.last_error = msg
+                    return None
+                return resp.text
+            except requests.RequestException as exc:
+                # Fall through to urllib as secondary path.
+                self.last_error = f"network_error: {exc.__class__.__name__}"
+
         data = json.dumps(payload).encode("utf-8")
         req = request.Request(
             url,
@@ -135,6 +162,8 @@ class OpenAIChatProvider:
             headers={
                 "Authorization": f"Bearer {self.api_key}",
                 "Content-Type": "application/json",
+                "Accept": "application/json",
+                "User-Agent": "MultiAgentApp/alpha",
             },
         )
         try:
