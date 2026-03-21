@@ -14,6 +14,10 @@ En enkel lokal multi-agent-app med Pydantic-modeller, SQLite-persistence och en 
 
 - Demo-flode (oforandrat):
   - `python src/main.py`
+- Alpha demo-setup (snabbaste vagen till meningsfull paneloutput):
+  - `python src/main.py --db-path alpha_demo.db alpha-demo-setup`
+  - Kommandot skapar en demosession, seedar beslut/candidate och kor en panelfraga.
+  - Efter korning far du direkt forslag pa nasta kommandon (show-panel-question, list-panel-questions, tui).
 - Skapa session:
   - `python src/main.py create-session --name "My Session"`
 - Lagga till task:
@@ -60,6 +64,15 @@ I denna iteration sker fortfarande skapande/hantering via CLI:
 - create/confirm/dismiss av candidates
 - create/accept/dismiss av suggestions
 - explicita link-operations
+
+## Snabb demo fran tomt lage
+
+1. Skapa demo-data och forsta panelresultat:
+   - `python src/main.py --db-path alpha_demo.db alpha-demo-setup`
+2. Visa sparad fraga med analys och reasoning:
+   - `python src/main.py --db-path alpha_demo.db show-panel-question --question-id <ID_FRAN_STEG_1>`
+3. Starta TUI med samma databas:
+   - `python src/main.py --db-path alpha_demo.db tui`
 
 ## Paketstruktur
 

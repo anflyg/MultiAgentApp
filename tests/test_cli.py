@@ -4,6 +4,7 @@ import pytest
 
 from multi_agent_app.cli import (
     add_task_to_session,
+    alpha_demo_setup,
     create_session,
     get_session_status,
     list_memory_for_session,
@@ -473,3 +474,41 @@ def test_cli_list_decision_candidates_invalid_session_fails(tmp_path, capsys, mo
     output = capsys.readouterr().out
     assert exc_info.value.code == 1
     assert "Decision candidate listing failed" in output
+
+
+def test_alpha_demo_setup_function_and_command(tmp_path, capsys, monkeypatch):
+    db_path = tmp_path / "alpha_demo_setup.db"
+    result = alpha_demo_setup(db_path=str(db_path))
+    assert result["session"].id
+    assert result["active_decision"].id
+    assert result["candidate"].id
+    assert result["panel_question"].id
+    assert result["assessment"].alignment in {
+        "aligned",
+        "clarification_needed",
+        "potential_deviation",
+        "likely_new_decision_required",
+    }
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "main.py",
+            "--db-path",
+            str(db_path),
+            "alpha-demo-setup",
+        ],
+    )
+    main()
+    output = capsys.readouterr().out
+    assert "Alpha demo is ready." in output
+    assert "Panel question id:" in output
+    assert "Suggested follow-up commands:" in output
+
+    storage = Storage(db_path=str(db_path))
+    try:
+        questions = storage.list_panel_questions(limit=5)
+        assert questions
+    finally:
+        storage.close()

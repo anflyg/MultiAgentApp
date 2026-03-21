@@ -1025,6 +1025,69 @@ def run_example_flow(
         storage.close()
 
 
+def alpha_demo_setup(
+    db_path: str,
+    session_name: str = "Alpha Demo Session",
+    topic: str = "Expansion",
+    question: str = "Ska vi öppna Danmark ändå trots att Norge är försenat?",
+) -> dict[str, object]:
+    session = create_session(db_path=db_path, session_name=session_name)
+    active_decision = create_decision(
+        db_path=db_path,
+        session_id=session.id,
+        title="Nordic rollout sequence",
+        topic=topic,
+        decision_text="Open Denmark only after Norway is stable.",
+        rationale="Minimize rollout risk and operational instability.",
+        owner="leadership",
+        tags=["alpha-demo", "active-direction"],
+    )
+    storage = Storage(db_path=db_path)
+    try:
+        storage.add_decision(
+            models.Decision(
+                session_id=session.id,
+                title="Earlier expansion baseline",
+                topic=topic,
+                decision_text="Move in parallel across all markets.",
+                rationale="Legacy baseline kept for history in demo.",
+                status="superseded",
+                owner="leadership",
+                tags=["alpha-demo", "history"],
+            )
+        )
+    finally:
+        storage.close()
+    candidate = create_decision_candidate(
+        db_path=db_path,
+        session_id=session.id,
+        title="Potential deviation candidate",
+        topic=topic,
+        candidate_text="Allow Denmark launch before Norway stabilization as an explicit exception.",
+        rationale="Commercial pressure may justify a controlled exception.",
+        owner="governance",
+        tags=["alpha-demo", "candidate"],
+    )
+    panel_question, context, assessment, responses, combined, likely_new_decision, next_step = ask_decision_panel(
+        db_path=db_path,
+        question=question,
+        topic=topic,
+        session_id=session.id,
+    )
+    return {
+        "session": session,
+        "active_decision": active_decision,
+        "candidate": candidate,
+        "panel_question": panel_question,
+        "context": context,
+        "assessment": assessment,
+        "responses": responses,
+        "combined": combined,
+        "likely_new_decision": likely_new_decision,
+        "next_step": next_step,
+    }
+
+
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="MultiAgentApp CLI.")
     parser.add_argument("--db-path", default="multi_agent.db", help="Path to SQLite database file.")
@@ -1175,6 +1238,22 @@ def _build_parser() -> argparse.ArgumentParser:
     list_panel_questions_parser.add_argument("--session-id", help="Optional session id filter.")
     list_panel_questions_parser.add_argument("--topic", help="Optional topic filter.")
     list_panel_questions_parser.add_argument("--limit", type=int, default=20, help="Maximum number of questions.")
+
+    alpha_demo_parser = subparsers.add_parser(
+        "alpha-demo-setup",
+        help="Seed a minimal alpha demo dataset and run one panel question.",
+    )
+    alpha_demo_parser.add_argument(
+        "--session-name",
+        default="Alpha Demo Session",
+        help="Session name for seeded demo data.",
+    )
+    alpha_demo_parser.add_argument("--topic", default="Expansion", help="Topic for seeded demo data.")
+    alpha_demo_parser.add_argument(
+        "--question",
+        default="Ska vi öppna Danmark ändå trots att Norge är försenat?",
+        help="Panel question to run for the demo seed.",
+    )
 
     subparsers.add_parser("tui", help="Launch Textual terminal UI.")
 
@@ -1680,6 +1759,33 @@ def main() -> None:
                 f"created_at={question.created_at.isoformat()} topic={question.topic}"
             )
             print(f"  {_truncate_question(question.question_text)}")
+        return
+
+    if args.command == "alpha-demo-setup":
+        result = alpha_demo_setup(
+            db_path=args.db_path,
+            session_name=args.session_name,
+            topic=args.topic,
+            question=args.question,
+        )
+        session = result["session"]
+        panel_question = result["panel_question"]
+        assessment = result["assessment"]
+        combined = result["combined"]
+        print("Alpha demo is ready.")
+        print(f"Session: {session.id} ({session.name})")
+        print(f"Seeded active decision: {result['active_decision'].id}")
+        print(f"Seeded open candidate: {result['candidate'].id}")
+        print(f"Panel question id: {panel_question.id}")
+        print(f"Assessment: {alignment_label(assessment.alignment)}")
+        print(f"Recommendation: {combined}")
+        print("Suggested follow-up commands:")
+        print(
+            f"- python src/main.py --db-path {args.db_path} "
+            f"show-panel-question --question-id {panel_question.id}"
+        )
+        print(f"- python src/main.py --db-path {args.db_path} list-panel-questions --topic {args.topic}")
+        print(f"- python src/main.py --db-path {args.db_path} tui")
         return
 
     if args.command == "tui":
