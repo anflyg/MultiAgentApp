@@ -10,6 +10,7 @@ from textual.widgets import Button, Footer, Header, Input, RichLog, Select, Stat
 from .cli import (
     ask_decision_panel,
 )
+from .panel import build_panel_outcome
 from .storage import Storage
 
 class MultiAgentTUI(App[None]):
@@ -286,14 +287,21 @@ class MultiAgentTUI(App[None]):
             interpretation = analysis.assessment_reason
 
         context_parts = []
+        signal_parts = []
         relevant_context = sections.get("relevant_context", {})
         if isinstance(relevant_context, dict):
             active_ids = relevant_context.get("active_decision_ids", [])
             historical_ids = relevant_context.get("historical_decision_ids", [])
+            open_candidate_ids = relevant_context.get("open_candidate_ids", [])
+            open_suggestion_ids = relevant_context.get("open_suggestion_ids", [])
             if active_ids:
                 context_parts.append("active=" + ", ".join(active_ids))
             if historical_ids:
                 context_parts.append("historical=" + ", ".join(historical_ids))
+            signal_parts.append(f"active={len(active_ids)}")
+            signal_parts.append(f"historical={len(historical_ids)}")
+            signal_parts.append(f"open_candidates={len(open_candidate_ids)}")
+            signal_parts.append(f"open_suggestions={len(open_suggestion_ids)}")
         context_line = " | ".join(context_parts) if context_parts else "none"
 
         role_lines = []
@@ -313,12 +321,16 @@ class MultiAgentTUI(App[None]):
             reasoning_lines.append(
                 f"- [{item.kind}] ({item.source_type}/{item.memory_level}) {content}"
             )
+        if not signal_parts:
+            signal_parts = ["active=0", "historical=0", "open_candidates=0", "open_suggestions=0"]
+        signal_parts.append(f"reasoning_items={len(reasoning_items)}")
         analysis_text = (
             f"Question: {question.question_text}\n"
             f"Topic: {question.topic}\n"
             f"Status: {question.status}\n"
             f"Interpretation: {interpretation or '-'}\n"
             f"Relevant context: {context_line}\n"
+            f"Decision/memory signals: {' | '.join(signal_parts)}\n"
             f"Tensions: {tensions_text}\n"
             f"Per-role analysis:\n"
             + ("\n".join(role_lines) if role_lines else "- none")
@@ -335,8 +347,11 @@ class MultiAgentTUI(App[None]):
         if isinstance(status_assessment, dict) and status_assessment:
             status_text = (
                 f"alignment: {status_assessment.get('alignment', '-')}\n"
+                f"decision_mode: {status_assessment.get('decision_mode', '-')}\n"
                 f"reason: {status_assessment.get('reason', '-')}\n"
-                f"likely_requires_new_decision: {status_assessment.get('likely_requires_new_decision', '-')}"
+                f"likely_requires_new_decision: {status_assessment.get('likely_requires_new_decision', '-')}\n"
+                f"formal_next_step: {status_assessment.get('formal_next_step', '-')}\n"
+                f"suggested_next_step: {status_assessment.get('suggested_next_step', '-')}"
             )
         elif analysis is not None:
             status_text = (
@@ -431,7 +446,18 @@ class MultiAgentTUI(App[None]):
                 else "none"
             )
         )
+        panel_outcome = build_panel_outcome(context, assessment)
         output.write(f"Decision alignment assessment: {assessment.alignment} ({assessment.reason})")
+        output.write(
+            "Panel classification: "
+            f"alignment={assessment.alignment} | mode={panel_outcome.decision_mode} | "
+            f"likely_new_decision={panel_outcome.likely_requires_new_decision}"
+        )
+        output.write(
+            "Context signals: "
+            f"active={len(context['active_decisions'])} | historical={len(context['historical_decisions'])} | "
+            f"open_candidates={len(context['open_candidates'])} | open_suggestions={len(context['open_suggestions'])}"
+        )
         output.write(
             "Challenge points: "
             + (" | ".join(assessment.challenge_points) if assessment.challenge_points else "none")
@@ -441,6 +467,7 @@ class MultiAgentTUI(App[None]):
         output.write(f"Operator: {by_agent['operator']}")
         output.write(f"Governance: {by_agent['governance']}")
         output.write(f"Combined recommendation: {combined}")
+        output.write(f"Formal next step: {panel_outcome.formal_next_step}")
         output.write(f"Likely requires new decision?: {likely_new_decision}")
         output.write(f"Suggested next step: {next_step}")
         self._status("Panel response generated.")

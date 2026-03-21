@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import sqlite3
+from collections import Counter
 from typing import Dict, List
 
 from . import models
@@ -259,6 +260,27 @@ def _print_decision_candidate_draft(draft: dict[str, str] | None) -> None:
     print(f"- text: {draft['candidate_text']}")
     print(f"- rationale: {draft['rationale']}")
     print(f"- next: {draft['manual_next_step']}")
+
+
+def _context_signal_line(context: dict) -> str:
+    return (
+        f"active={len(context['active_decisions'])} | "
+        f"historical={len(context['historical_decisions'])} | "
+        f"open_candidates={len(context['open_candidates'])} | "
+        f"open_suggestions={len(context['open_suggestions'])}"
+    )
+
+
+def _reasoning_signal_line(reasoning_items: list[models.ReasoningItem]) -> str:
+    if not reasoning_items:
+        return "none"
+    kind_counts = Counter(item.kind for item in reasoning_items)
+    visibility_counts = Counter(item.memory_level for item in reasoning_items)
+    kind_part = ", ".join(f"{kind}={count}" for kind, count in sorted(kind_counts.items()))
+    visibility_part = ", ".join(
+        f"{level}={count}" for level, count in sorted(visibility_counts.items())
+    )
+    return f"total={len(reasoning_items)} | kinds: {kind_part} | visibility: {visibility_part}"
 
 
 def create_session(db_path: str, session_name: str) -> models.Session:
@@ -1453,6 +1475,11 @@ def main() -> None:
         outcome = build_panel_outcome(context, assessment)
         print(f"Decision status mode: {outcome.decision_mode}")
         print(f"Formal next step: {outcome.formal_next_step}")
+        print(
+            "Panel classification: "
+            f"alignment={assessment.alignment} | mode={outcome.decision_mode} | likely_new_decision={likely_new_decision}"
+        )
+        print(f"Context signals: {_context_signal_line(context)}")
         draft = _build_decision_candidate_draft(
             question_text=panel_question.question_text,
             topic=panel_question.topic,
@@ -1491,6 +1518,7 @@ def main() -> None:
 
         question = case["question"]
         analysis = case["analysis"]
+        sections = case.get("sections", {}) or {}
         responses = case["responses"]
         context_decision_ids = case["context_decision_ids"]
         reasoning_items = case.get("reasoning_items", [])
@@ -1512,6 +1540,36 @@ def main() -> None:
             )
             print(f"Decision status mode: {assessment_payload.get('decision_mode', '-')}")
             print(f"Formal next step: {formal_next_step_text}")
+            print(
+                "Panel classification: "
+                f"alignment={analysis.assessment_alignment} | "
+                f"mode={assessment_payload.get('decision_mode', '-')} | "
+                f"likely_new_decision={analysis.likely_requires_new_decision}"
+            )
+            relevant_context = sections.get("relevant_context", {})
+            active_ids = relevant_context.get("active_decision_ids", []) if isinstance(relevant_context, dict) else []
+            historical_ids = (
+                relevant_context.get("historical_decision_ids", [])
+                if isinstance(relevant_context, dict)
+                else []
+            )
+            open_candidate_ids = (
+                relevant_context.get("open_candidate_ids", [])
+                if isinstance(relevant_context, dict)
+                else []
+            )
+            open_suggestion_ids = (
+                relevant_context.get("open_suggestion_ids", [])
+                if isinstance(relevant_context, dict)
+                else []
+            )
+            print(
+                "Context signals: "
+                f"active={len(active_ids or context_decision_ids)} | "
+                f"historical={len(historical_ids)} | "
+                f"open_candidates={len(open_candidate_ids)} | "
+                f"open_suggestions={len(open_suggestion_ids)}"
+            )
             draft = _build_decision_candidate_draft(
                 question_text=question.question_text,
                 topic=question.topic,
@@ -1541,6 +1599,7 @@ def main() -> None:
         print(f"Operator: {by_agent.get('operator', '-')}")
         print(f"Governance: {by_agent.get('governance', '-')}")
         print(f"Reasoning items: {len(reasoning_items)}")
+        print(f"Reasoning memory signals: {_reasoning_signal_line(reasoning_items)}")
         for item in reasoning_items:
             print(f"- [{item.kind}] source={item.source_type} visibility={item.memory_level}")
             print(f"  {item.content}")

@@ -48,9 +48,12 @@ def test_tui_build_question_detail_texts_uses_sections_when_available():
             "tensions": ["Clarify sequencing."],
             "combined_recommendation": "Proceed with staged rollout.",
             "decision_status_assessment": {
+                "decision_mode": "clarification_of_active_decision",
                 "alignment": "clarification_needed",
                 "reason": "Needs execution details.",
                 "likely_requires_new_decision": "probably",
+                "formal_next_step": "Document clarification before execution.",
+                "suggested_next_step": "Document owner and sequence.",
             },
         },
         "reasoning_items": [
@@ -66,10 +69,14 @@ def test_tui_build_question_detail_texts_uses_sections_when_available():
     assert "Interpretation: Execution clarification under current direction." in analysis_text
     assert "Per-role analysis:" in analysis_text
     assert "strateg: Stay aligned." in analysis_text
+    assert "Decision/memory signals:" in analysis_text
     assert "Reasoning items:" in analysis_text
     assert "[risk] (panel/private_context) Timeline may slip due to dependency sequencing." in analysis_text
     assert recommendation_text == "Proceed with staged rollout."
     assert "alignment: clarification_needed" in status_text
+    assert "decision_mode: clarification_of_active_decision" in status_text
+    assert "formal_next_step: Document clarification before execution." in status_text
+    assert "suggested_next_step: Document owner and sequence." in status_text
     assert "likely_requires_new_decision: probably" in status_text
 
 

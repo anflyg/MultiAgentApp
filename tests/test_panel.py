@@ -486,6 +486,8 @@ def test_ask_decision_panel_output_includes_required_sections(tmp_path, capsys, 
     assert "Open decision candidates:" in output
     assert "Open decision suggestions:" in output
     assert "Decision alignment assessment:" in output
+    assert "Panel classification:" in output
+    assert "Context signals:" in output
     assert "Challenge points:" in output
     assert "Strateg:" in output
     assert "Analyst:" in output
@@ -523,9 +525,12 @@ def test_show_panel_question_command_loads_saved_case(tmp_path, capsys, monkeypa
     assert "Question:" in output
     assert "Active decision context ids:" in output
     assert "Decision alignment assessment:" in output
+    assert "Panel classification:" in output
+    assert "Context signals:" in output
     assert "Combined recommendation:" in output
     assert "Strateg:" in output
     assert "Reasoning items:" in output
+    assert "Reasoning memory signals:" in output
 
 
 def test_panel_cli_outputs_manual_candidate_draft_for_new_decision_case(tmp_path, capsys, monkeypatch):
