@@ -158,7 +158,9 @@ class MultiAgentTUI(App[None]):
                 f"- {question.id[:8]} | {question.topic} | {summary}"
             )
         self.query_one("#recent-questions", Static).update(
-            "\n".join(question_lines) if question_lines else "No previous panel questions."
+            "\n".join(question_lines)
+            if question_lines
+            else "No previous panel questions yet. Use Ask panel on the right to create your first one."
         )
 
         question_select = self.query_one("#question-select", Select)
@@ -191,7 +193,9 @@ class MultiAgentTUI(App[None]):
                 f"- {decision.id[:8]} | {decision.title} | {decision.topic} | {decision.status} | {decision.owner or '-'}"
             )
         self.query_one("#active-decisions", Static).update(
-            "\n".join(decision_lines) if decision_lines else "No active decisions."
+            "\n".join(decision_lines)
+            if decision_lines
+            else "No active decisions yet. Run alpha-demo-setup or create one via CLI."
         )
 
         decision_select = self.query_one("#decision-select", Select)
@@ -215,7 +219,9 @@ class MultiAgentTUI(App[None]):
                 f"- {candidate.title} | {candidate.topic} | {candidate.status} | session={candidate.session_id[:8]}"
             )
         self.query_one("#open-candidates", Static).update(
-            "\n".join(candidate_lines) if candidate_lines else "No open decision candidates."
+            "\n".join(candidate_lines)
+            if candidate_lines
+            else "No pending decision candidates right now."
         )
 
         suggestion_lines = []
@@ -225,7 +231,9 @@ class MultiAgentTUI(App[None]):
                 f"{suggestion.target_decision_id[:8]} | {suggestion.status}"
             )
         self.query_one("#open-suggestions", Static).update(
-            "\n".join(suggestion_lines) if suggestion_lines else "No open decision suggestions."
+            "\n".join(suggestion_lines)
+            if suggestion_lines
+            else "No pending decision suggestions right now."
         )
 
         event_lines = []

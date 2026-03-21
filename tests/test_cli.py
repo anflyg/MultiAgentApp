@@ -512,3 +512,22 @@ def test_alpha_demo_setup_function_and_command(tmp_path, capsys, monkeypatch):
         assert questions
     finally:
         storage.close()
+
+
+def test_cli_default_run_prints_onboarding_tip(tmp_path, capsys, monkeypatch):
+    db_path = tmp_path / "default_cli_onboarding.db"
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "main.py",
+            "--db-path",
+            str(db_path),
+        ],
+    )
+    main()
+    output = capsys.readouterr().out
+    assert "Session ID:" in output
+    assert "Onboarding tip:" in output
+    assert "alpha-demo-setup" in output
+    assert "tui" in output

@@ -1828,6 +1828,9 @@ def main() -> None:
     print(f"Action kind: {result['action'].kind}")
     print(f"Agent output: {result['action'].content}")
     print(f"Memory items created: {len(result['memory_items'])}")
+    print("Onboarding tip:")
+    print(f"- Quick demo: python src/main.py --db-path {args.db_path} alpha-demo-setup")
+    print(f"- Open dashboard: python src/main.py --db-path {args.db_path} tui")
 
 
 if __name__ == "__main__":
