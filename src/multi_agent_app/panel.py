@@ -237,19 +237,24 @@ def build_context_packet(
 def strateg_response(
     question: str, context: PanelContext, assessment: models.DecisionAlignmentAssessment
 ) -> str:
+    active_titles = ", ".join(decision.title for decision in context["active_decisions"][:3]) or "none"
     if assessment.alignment == "likely_new_decision_required":
         return (
-            "Question appears to challenge current strategic direction and should not be treated as normal execution. "
-            "Escalate as a new decision request."
+            "Directional conflict/deviation detected against current direction. "
+            "Treat this as a route-choice question: keep current path or propose a new direction explicitly. "
+            "Do not run this as normal execution before a new decision request is reviewed."
         )
     if assessment.alignment == "potential_deviation":
         return (
-            "Question may signal a strategic deviation. Confirm if this is an intentional direction change before "
-            "continuing."
+            "Possible strategic fork from current direction. "
+            "Confirm whether leadership intends an exception or a direction update before continuing."
         )
     if assessment.alignment == "clarification_needed":
-        return "Question reads as execution/clarification work; strategic direction remains governed by active decisions."
-    return "Question appears aligned with current strategic direction and can proceed under active decisions."
+        return (
+            "Strategic direction is likely unchanged; this is mainly a scope/clarification issue under current path. "
+            f"Anchor choices to active direction set: {active_titles}."
+        )
+    return f"Strategic fit appears intact with active direction set ({active_titles}); continue within current path."
 
 
 def analyst_response(
@@ -262,24 +267,43 @@ def analyst_response(
         risk_flags.append(f"{len(context['open_candidates'])} open candidate(s)")
     if context["historical_decisions"]:
         risk_flags.append(f"{len(context['historical_decisions'])} historical decision(s)")
-    if not risk_flags:
-        return "Low visible tension in stored records, but assumptions behind active decisions may still need verification."
-    return "Potential risk indicators: " + ", ".join(risk_flags) + "."
+    missing_evidence: list[str] = []
+    if assessment.alignment in {"potential_deviation", "likely_new_decision_required"}:
+        missing_evidence.append("explicit exception rationale")
+    if context["active_decisions"] and not context["decision_links"]:
+        missing_evidence.append("impact links between active decisions")
+    if context["open_candidates"] and context["active_decisions"]:
+        missing_evidence.append("clear boundary between candidate and current mandate")
+    key_uncertainty = assessment.challenge_points[0] if assessment.challenge_points else assessment.reason
+    risk_line = (
+        "Risk indicators: " + ", ".join(risk_flags)
+        if risk_flags
+        else "Risk indicators: low visible structural tension in stored records"
+    )
+    evidence_line = (
+        "Missing evidence: " + ", ".join(missing_evidence)
+        if missing_evidence
+        else "Missing evidence: confirm assumptions and monitoring triggers"
+    )
+    return f"{risk_line}. Key uncertainty: {key_uncertainty} | {evidence_line}."
 
 
 def operator_response(
     question: str, context: PanelContext, assessment: models.DecisionAlignmentAssessment
 ) -> str:
     if not context["active_decisions"]:
-        return "First create a concrete decision for this topic, then assign owner and implementation steps."
+        return (
+            "Execution sequence: create a decision candidate, assign temporary owner, and pause rollout changes "
+            "until baseline decision is confirmed."
+        )
     if assessment.alignment in {"potential_deviation", "likely_new_decision_required"}:
         return (
-            "Pause rollout changes and open explicit decision handling. Keep current implementation constrained to "
-            "existing active decisions until governance confirms."
+            "Execution sequence: freeze scope changes, assign owner for decision preparation, document proposed "
+            "change impact, then escalate to formal review before implementation."
         )
     return (
-        "Execute against active decisions, confirm ownership, and convert open suggestions/candidates into explicit "
-        "accept, dismiss, or new decision actions."
+        "Execution sequence: map work to active decisions, set explicit owner and handoff order, then run changes in "
+        "controlled steps while resolving open candidates/suggestions."
     )
 
 
@@ -287,17 +311,23 @@ def governance_response(
     question: str, context: PanelContext, assessment: models.DecisionAlignmentAssessment
 ) -> str:
     if not context["active_decisions"]:
-        return "No active governing decisions were found for this topic."
+        return "No active governing decisions were found for this topic. Formal governance baseline is missing."
     governed = ", ".join(
         f"{decision.id} ({decision.title})" for decision in context["active_decisions"][:5]
     )
     if assessment.alignment == "aligned":
-        mode = "execution within current decision"
+        status = "execution within current decision mandate"
+        control = "Record implementation under active decision."
     elif assessment.alignment == "clarification_needed":
-        mode = "clarification of current decision"
+        status = "clarification of current decision mandate"
+        control = "Document clarification against active decision before execution."
+    elif assessment.alignment == "potential_deviation":
+        status = "potential new decision"
+        control = "Open formal exception handling before changing execution."
     else:
-        mode = "potential new decision"
-    return f"Active governing decisions: {governed}. Treat this question as: {mode}."
+        status = "potential new decision"
+        control = "Open new decision candidate and require confirmation before execution."
+    return f"Active governing decisions: {governed}. Governance status: {status}. Formal control: {control}"
 
 
 def default_advisor_roles() -> list[models.AdvisorRole]:

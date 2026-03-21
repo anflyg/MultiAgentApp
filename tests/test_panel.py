@@ -85,6 +85,31 @@ def test_per_role_analysis_uses_active_roles_only():
     assert set(outputs.keys()) == {"strateg", "analyst", "operator"}
 
 
+def test_per_role_analysis_role_outputs_are_differentiated():
+    assessment = models.DecisionAlignmentAssessment(
+        alignment="potential_deviation",
+        reason="May diverge from active direction.",
+        challenge_points=["Validate exception intent before change."],
+    )
+    context = {
+        "active_decisions": [models.Decision(session_id="S1", title="Core Direction", topic="Ops", decision_text="Do X")],
+        "historical_decisions": [],
+        "open_candidates": [],
+        "open_suggestions": [],
+        "decision_links": [],
+    }
+    outputs = per_role_analysis(
+        question="Can we shift this path?",
+        context=context,
+        assessment=assessment,
+    )
+    assert len(set(outputs.values())) == 4
+    assert "direction" in outputs["strateg"].lower()
+    assert "risk" in outputs["analyst"].lower() or "uncertainty" in outputs["analyst"].lower()
+    assert "sequence" in outputs["operator"].lower()
+    assert "governance status" in outputs["governance"].lower()
+
+
 def test_retrieval_returns_active_and_superseded_by_topic(tmp_path):
     db_path = tmp_path / "panel_retrieval.db"
     session = create_session(str(db_path), "Panel Retrieval")
