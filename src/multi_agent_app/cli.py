@@ -914,25 +914,57 @@ def ask_decision_panel(
             assessment=assessment,
             roles=roles,
         )
-        resolved_provider = llm_provider or provider_from_env()
+        resolved_provider = llm_provider if llm_provider is not None else provider_from_env()
+        role_analysis_outputs, role_sources, fallback_reasons, role_provider_config, role_provider_available = (
+            apply_role_llm_overrides(
+                provider=resolved_provider if llm_provider is not None else None,
+                roles=roles,
+                question=normalized_question,
+                context=context,
+                assessment=assessment,
+                heuristic_outputs=heuristic_role_outputs,
+            )
+        )
         provider_enabled = (
             provider_enabled_from_env()
             if llm_provider is None
             else resolved_provider.name != "heuristic"
         )
-        role_analysis_outputs, role_sources, fallback_reasons = apply_role_llm_overrides(
-            provider=resolved_provider,
-            roles=roles,
-            question=normalized_question,
-            context=context,
-            assessment=assessment,
-            heuristic_outputs=heuristic_role_outputs,
+        configured_providers = {
+            (config.get("provider") or "heuristic")
+            for config in role_provider_config.values()
+        }
+        configured_models = {
+            (config.get("model") or "-")
+            for config in role_provider_config.values()
+            if (config.get("provider") or "heuristic") != "heuristic"
+        }
+        provider_label = (
+            next(iter(configured_providers))
+            if len(configured_providers) == 1
+            else "mixed"
+        )
+        model_label = (
+            next(iter(configured_models))
+            if len(configured_models) == 1
+            else ("mixed" if configured_models else None)
+        )
+        provider_available = (
+            any(
+                available
+                for role_name, available in role_provider_available.items()
+                if (role_provider_config.get(role_name, {}).get("provider") or "heuristic") != "heuristic"
+            )
+            if provider_enabled
+            else False
         )
         llm_status = {
-            "provider": resolved_provider.name,
-            "model": getattr(resolved_provider, "model", None),
+            "provider": provider_label,
+            "model": model_label,
             "provider_enabled": provider_enabled,
-            "provider_available": resolved_provider.is_available(),
+            "provider_available": provider_available,
+            "role_provider_config": role_provider_config,
+            "role_provider_available": role_provider_available,
             "role_sources": role_sources,
             "llm_roles": [role for role, source in role_sources.items() if source == "llm"],
             "fallback_roles": [role for role, source in role_sources.items() if source != "llm"],
@@ -1623,6 +1655,11 @@ def main() -> None:
             if isinstance(llm_status, dict)
             else {}
         )
+        role_provider_config = (
+            llm_status.get("role_provider_config", {})
+            if isinstance(llm_status, dict)
+            else {}
+        )
         fallback_reasons = (
             llm_status.get("fallback_reasons", {})
             if isinstance(llm_status, dict)
@@ -1682,6 +1719,13 @@ def main() -> None:
             f"{f' ({provider_model})' if provider_model else ''} | enabled={'yes' if provider_enabled else 'no'} | "
             f"available={'yes' if provider_available else 'no'}"
         )
+        if role_provider_config:
+            role_map = ", ".join(
+                f"{role}={cfg.get('provider', 'heuristic')}"
+                f"{f'({cfg.get('model')})' if cfg.get('model') else ''}"
+                for role, cfg in sorted(role_provider_config.items())
+            )
+            print(f"Role provider map: {role_map}")
         if fallback_reasons:
             compact = ", ".join(f"{role}={reason}" for role, reason in sorted(fallback_reasons.items()))
             print(f"Fallback notes: {compact}")
@@ -1752,6 +1796,7 @@ def main() -> None:
         reasoning_items = case.get("reasoning_items", [])
         by_agent = {response.agent_name: response.response_text for response in responses}
         role_sources: dict[str, str] = {}
+        role_provider_config: dict[str, dict[str, str | None]] = {}
         fallback_reasons: dict[str, str] = {}
         provider_name = "heuristic"
         provider_model = None
@@ -1774,6 +1819,7 @@ def main() -> None:
             )
             if isinstance(llm_status, dict):
                 role_sources = llm_status.get("role_sources", {}) or {}
+                role_provider_config = llm_status.get("role_provider_config", {}) or {}
                 fallback_reasons = llm_status.get("fallback_reasons", {}) or {}
                 provider_name = llm_status.get("provider", "heuristic")
                 provider_model = llm_status.get("model")
@@ -1802,6 +1848,13 @@ def main() -> None:
                 f"{f' ({provider_model})' if provider_model else ''} | enabled={'yes' if provider_enabled else 'no'} | "
                 f"available={'yes' if provider_available else 'no'}"
             )
+            if role_provider_config:
+                role_map = ", ".join(
+                    f"{role}={cfg.get('provider', 'heuristic')}"
+                    f"{f'({cfg.get('model')})' if cfg.get('model') else ''}"
+                    for role, cfg in sorted(role_provider_config.items())
+                )
+                print(f"Role provider map: {role_map}")
             if fallback_reasons:
                 compact = ", ".join(f"{role}={reason}" for role, reason in sorted(fallback_reasons.items()))
                 print(f"Fallback notes: {compact}")

@@ -10,6 +10,7 @@ from multi_agent_app.llm import (
     _extract_openai_text,
     apply_role_llm_overrides,
     provider_from_env,
+    resolve_role_provider_and_model,
 )
 from multi_agent_app.panel import default_advisor_roles
 from multi_agent_app.storage import Storage
@@ -78,7 +79,7 @@ def test_apply_role_llm_overrides_keeps_heuristics_when_provider_disabled():
         "open_suggestions": [],
         "decision_links": [],
     }
-    output, role_sources, fallback_reasons = apply_role_llm_overrides(
+    output, role_sources, fallback_reasons, role_provider_config, role_provider_available = apply_role_llm_overrides(
         provider=NullLLMProvider(),
         roles=roles,
         question="How should we proceed?",
@@ -88,7 +89,9 @@ def test_apply_role_llm_overrides_keeps_heuristics_when_provider_disabled():
     )
     assert output == heuristic_outputs
     assert all(source == "heuristic" for source in role_sources.values())
-    assert all(reason == "provider_unavailable" for reason in fallback_reasons.values())
+    assert all(reason == "heuristic_configured" for reason in fallback_reasons.values())
+    assert all(config["provider"] == "heuristic" for config in role_provider_config.values())
+    assert all(available is False for available in role_provider_available.values())
 
 
 def test_ask_decision_panel_accepts_provider_and_overrides_role_text(tmp_path):
@@ -138,3 +141,50 @@ def test_extract_openai_error_returns_message():
 def test_extract_gemini_text_returns_candidate_text():
     raw = '{"candidates":[{"content":{"parts":[{"text":"Gemini role answer"}]}}]}'
     assert _extract_gemini_text(raw) == "Gemini role answer"
+
+
+def test_resolve_role_provider_and_model_prefers_role_override(monkeypatch):
+    monkeypatch.setenv("MULTI_AGENT_APP_LLM_PROVIDER", "openai")
+    monkeypatch.setenv("LLM_PROVIDER_ANALYST", "gemini")
+    monkeypatch.setenv("OPENAI_MODEL", "gpt-4o-mini")
+    monkeypatch.setenv("GEMINI_MODEL", "gemini-1.5-flash")
+    monkeypatch.setenv("GEMINI_MODEL_ANALYST", "gemini-1.5-pro")
+
+    provider_name, model = resolve_role_provider_and_model("analyst")
+    assert provider_name == "gemini"
+    assert model == "gemini-1.5-pro"
+
+    provider_name_other, model_other = resolve_role_provider_and_model("strateg")
+    assert provider_name_other == "openai"
+    assert model_other == "gpt-4o-mini"
+
+
+def test_apply_role_llm_overrides_role_specific_heuristic_override(monkeypatch):
+    monkeypatch.setenv("MULTI_AGENT_APP_LLM_PROVIDER", "openai")
+    monkeypatch.setenv("LLM_PROVIDER_STRATEG", "heuristic")
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+
+    roles = default_advisor_roles()
+    assessment = models.DecisionAlignmentAssessment(
+        alignment="clarification_needed",
+        reason="Needs clarification.",
+    )
+    heuristic_outputs = {role.name: f"{role.name}-heuristic" for role in roles}
+    context = {
+        "active_decisions": [],
+        "historical_decisions": [],
+        "open_candidates": [],
+        "open_suggestions": [],
+        "decision_links": [],
+    }
+    _, _, fallback_reasons, role_provider_config, _ = apply_role_llm_overrides(
+        provider=None,
+        roles=roles,
+        question="How should we proceed?",
+        context=context,
+        assessment=assessment,
+        heuristic_outputs=heuristic_outputs,
+    )
+    assert role_provider_config["strateg"]["provider"] == "heuristic"
+    assert fallback_reasons["strateg"] == "heuristic_configured"
+    assert fallback_reasons["analyst"] == "provider_unavailable"

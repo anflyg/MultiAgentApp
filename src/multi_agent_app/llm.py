@@ -12,6 +12,10 @@ try:
 except ImportError:  # pragma: no cover - handled by urllib fallback.
     requests = None
 
+_SUPPORTED_PROVIDERS = {"openai", "gemini", "heuristic"}
+_OPENAI_DEFAULT_MODEL = "gpt-4o-mini"
+_GEMINI_DEFAULT_MODEL = "gemini-1.5-flash"
+
 
 class LLMProvider(Protocol):
     name: str
@@ -35,6 +39,7 @@ class NullLLMProvider:
     """Fallback provider that intentionally never generates content."""
 
     name = "heuristic"
+    model: str | None = None
 
     def is_available(self) -> bool:
         return False
@@ -69,7 +74,7 @@ class OpenAIChatProvider:
         timeout_seconds: float = 8.0,
     ) -> None:
         self.api_key = (api_key or "").strip()
-        self.model = model.strip() or "gpt-4o-mini"
+        self.model = model.strip() or _OPENAI_DEFAULT_MODEL
         self.timeout_seconds = timeout_seconds
         self.last_error: str | None = None
 
@@ -213,7 +218,7 @@ class GeminiProvider:
         timeout_seconds: float = 8.0,
     ) -> None:
         self.api_key = (api_key or "").strip()
-        self.model = model.strip() or "gemini-1.5-flash"
+        self.model = model.strip() or _GEMINI_DEFAULT_MODEL
         self.timeout_seconds = timeout_seconds
         self.last_error: str | None = None
 
@@ -450,33 +455,91 @@ def _extract_gemini_text(raw_body: str) -> str | None:
     return "\n".join(segments)
 
 
+def _normalize_provider(value: str | None) -> str:
+    normalized = (value or "").strip().lower()
+    if normalized in _SUPPORTED_PROVIDERS:
+        return normalized
+    return "heuristic"
+
+
+def _role_env_suffix(role_name: str) -> str:
+    return role_name.strip().upper()
+
+
+def resolve_role_provider_and_model(role_name: str) -> tuple[str, str | None]:
+    role_suffix = _role_env_suffix(role_name)
+    raw_role_provider = os.getenv(f"LLM_PROVIDER_{role_suffix}")
+    global_provider = _normalize_provider(os.getenv("MULTI_AGENT_APP_LLM_PROVIDER"))
+    role_provider = _normalize_provider(raw_role_provider)
+    selected_provider = role_provider if role_provider != "heuristic" or global_provider == "heuristic" else global_provider
+    if (raw_role_provider or "").strip().lower() == "heuristic":
+        selected_provider = "heuristic"
+    if selected_provider == "openai":
+        return (
+            "openai",
+            os.getenv(f"OPENAI_MODEL_{role_suffix}") or os.getenv("OPENAI_MODEL", _OPENAI_DEFAULT_MODEL),
+        )
+    if selected_provider == "gemini":
+        return (
+            "gemini",
+            os.getenv(f"GEMINI_MODEL_{role_suffix}") or os.getenv("GEMINI_MODEL", _GEMINI_DEFAULT_MODEL),
+        )
+    return "heuristic", None
+
+
+def _provider_from_selection(provider_name: str, model: str | None) -> LLMProvider:
+    if provider_name == "openai":
+        return OpenAIChatProvider(
+            api_key=os.getenv("OPENAI_API_KEY"),
+            model=model or _OPENAI_DEFAULT_MODEL,
+        )
+    if provider_name == "gemini":
+        return GeminiProvider(
+            api_key=os.getenv("GEMINI_API_KEY"),
+            model=model or _GEMINI_DEFAULT_MODEL,
+        )
+    return NullLLMProvider()
+
+
 def provider_from_env() -> LLMProvider:
     selected = os.getenv("MULTI_AGENT_APP_LLM_PROVIDER", "").strip().lower()
     if selected == "openai":
         api_key = os.getenv("OPENAI_API_KEY")
-        model = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+        model = os.getenv("OPENAI_MODEL", _OPENAI_DEFAULT_MODEL)
         return OpenAIChatProvider(api_key=api_key, model=model)
     if selected == "gemini":
         api_key = os.getenv("GEMINI_API_KEY")
-        model = os.getenv("GEMINI_MODEL", "gemini-1.5-flash")
+        model = os.getenv("GEMINI_MODEL", _GEMINI_DEFAULT_MODEL)
         return GeminiProvider(api_key=api_key, model=model)
     return NullLLMProvider()
 
 
 def provider_enabled_from_env() -> bool:
-    selected = os.getenv("MULTI_AGENT_APP_LLM_PROVIDER", "").strip().lower()
-    return selected in {"openai", "gemini"}
+    selected = _normalize_provider(os.getenv("MULTI_AGENT_APP_LLM_PROVIDER"))
+    if selected in {"openai", "gemini"}:
+        return True
+    for role in ("strateg", "analyst", "operator", "governance"):
+        role_provider, _ = resolve_role_provider_and_model(role)
+        if role_provider in {"openai", "gemini"}:
+            return True
+    return False
 
 
 def apply_role_llm_overrides(
     *,
-    provider: LLMProvider,
+    provider: LLMProvider | None,
     roles: list[models.AdvisorRole],
     question: str,
     context: Mapping[str, object],
     assessment: models.DecisionAlignmentAssessment,
     heuristic_outputs: Mapping[str, str],
-) -> tuple[dict[str, str], dict[str, str], dict[str, str]]:
+) -> tuple[
+    dict[str, str],
+    dict[str, str],
+    dict[str, str],
+    dict[str, dict[str, str | None]],
+    dict[str, bool],
+]:
     output = dict(heuristic_outputs)
     role_sources = {
         role.name: "heuristic"
@@ -488,13 +551,34 @@ def apply_role_llm_overrides(
         for role in roles
         if role.name in output
     }
-    if not provider.is_available():
-        for role_name in fallback_reasons:
-            fallback_reasons[role_name] = "provider_unavailable"
-        return output, role_sources, fallback_reasons
+    role_provider_config: dict[str, dict[str, str | None]] = {}
+    role_provider_available: dict[str, bool] = {}
+
     for role in roles:
+        if provider is None:
+            provider_name, model = resolve_role_provider_and_model(role.name)
+            role_provider = _provider_from_selection(provider_name, model)
+        else:
+            provider_name = provider.name
+            model = getattr(provider, "model", None)
+            role_provider = provider
+
+        role_provider_config[role.name] = {
+            "provider": provider_name,
+            "model": model,
+        }
+        available = role_provider.is_available()
+        role_provider_available[role.name] = available
+
+        if provider_name == "heuristic":
+            fallback_reasons[role.name] = "heuristic_configured"
+            continue
+        if not available:
+            fallback_reasons[role.name] = "provider_unavailable"
+            continue
+
         fallback = output.get(role.name, "")
-        generated = provider.generate_role_response(
+        generated = role_provider.generate_role_response(
             role=role,
             question=question,
             context=context,
@@ -506,6 +590,6 @@ def apply_role_llm_overrides(
             role_sources[role.name] = "llm"
             fallback_reasons.pop(role.name, None)
             continue
-        error_reason = getattr(provider, "last_error", None) or "empty_or_unparseable_response"
+        error_reason = getattr(role_provider, "last_error", None) or "empty_or_unparseable_response"
         fallback_reasons[role.name] = str(error_reason)
-    return output, role_sources, fallback_reasons
+    return output, role_sources, fallback_reasons, role_provider_config, role_provider_available
