@@ -7,7 +7,12 @@ from typing import Dict, List
 
 from . import models
 from .agents import BaseAgent, PlannerAgent, ReviewerAgent, WriterAgent
-from .llm import LLMProvider, apply_role_llm_overrides, provider_from_env
+from .llm import (
+    LLMProvider,
+    apply_role_llm_overrides,
+    provider_enabled_from_env,
+    provider_from_env,
+)
 from .orchestrator import OrchestrationError, Orchestrator
 from .panel import (
     active_advisor_roles,
@@ -57,6 +62,10 @@ _REASONING_VISIBILITY_LABEL = {
     "private_context": "private context",
     "formal_decision": "formal decision context",
 }
+_ROLE_RESPONSE_SOURCE_LABEL = {
+    "llm": "LLM",
+    "heuristic": "heuristic fallback",
+}
 
 
 def _add_suggestion_event(
@@ -89,6 +98,10 @@ def _default_agents() -> Dict[str, BaseAgent]:
         "reviewer": ReviewerAgent(),
         "planner": PlannerAgent(),
     }
+
+
+def _role_response_source_label(source: str) -> str:
+    return _ROLE_RESPONSE_SOURCE_LABEL.get(source, source)
 
 
 def _reasoning_signature(
@@ -902,7 +915,12 @@ def ask_decision_panel(
             roles=roles,
         )
         resolved_provider = llm_provider or provider_from_env()
-        role_analysis_outputs = apply_role_llm_overrides(
+        provider_enabled = (
+            provider_enabled_from_env()
+            if llm_provider is None
+            else resolved_provider.name != "heuristic"
+        )
+        role_analysis_outputs, role_sources = apply_role_llm_overrides(
             provider=resolved_provider,
             roles=roles,
             question=normalized_question,
@@ -910,6 +928,14 @@ def ask_decision_panel(
             assessment=assessment,
             heuristic_outputs=heuristic_role_outputs,
         )
+        llm_status = {
+            "provider": resolved_provider.name,
+            "provider_enabled": provider_enabled,
+            "provider_available": resolved_provider.is_available(),
+            "role_sources": role_sources,
+            "llm_roles": [role for role, source in role_sources.items() if source == "llm"],
+            "fallback_roles": [role for role, source in role_sources.items() if source != "llm"],
+        }
         responses = [
                 models.PanelResponse(
                     question_id=panel_question.id,
@@ -942,6 +968,7 @@ def ask_decision_panel(
                 combined=combined,
                 panel_outcome=panel_outcome,
                 suggested_formal_step=next_step,
+                llm_status=llm_status,
             )
         storage.add_panel_question_analysis(
             models.ExecutiveQuestionAnalysis(
@@ -1582,6 +1609,21 @@ def main() -> None:
             raise SystemExit(1) from exc
 
         by_agent = {response.agent_name: response.response_text for response in responses}
+        stored_analysis = show_panel_question_case(args.db_path, panel_question.id).get("analysis")
+        status_payload = stored_analysis.decision_status_assessment if stored_analysis else {}
+        llm_status = (
+            status_payload.get("llm_status", {})
+            if isinstance(status_payload, dict)
+            else {}
+        )
+        role_sources = (
+            llm_status.get("role_sources", {})
+            if isinstance(llm_status, dict)
+            else {}
+        )
+        provider_name = llm_status.get("provider", "heuristic") if isinstance(llm_status, dict) else "heuristic"
+        provider_enabled = bool(llm_status.get("provider_enabled")) if isinstance(llm_status, dict) else False
+        provider_available = bool(llm_status.get("provider_available")) if isinstance(llm_status, dict) else False
         print(f"Question: {panel_question.question_text}")
         print(f"Topic: {panel_question.topic}")
 
@@ -1626,6 +1668,11 @@ def main() -> None:
             f"Mode: {decision_mode_label(outcome.decision_mode)} | "
             f"New decision likelihood: {likelihood_label(likely_new_decision)}"
         )
+        print(
+            "Role generation mode: "
+            f"provider={provider_name} | enabled={'yes' if provider_enabled else 'no'} | "
+            f"available={'yes' if provider_available else 'no'}"
+        )
         print(f"Decision context at a glance: {_context_signal_line(context)}")
         draft = _build_decision_candidate_draft(
             question_text=panel_question.question_text,
@@ -1646,10 +1693,22 @@ def main() -> None:
         else:
             print("- none")
 
-        print(f"Strateg: {by_agent['strateg']}")
-        print(f"Analyst: {by_agent['analyst']}")
-        print(f"Operator: {by_agent['operator']}")
-        print(f"Governance: {by_agent['governance']}")
+        print(
+            f"Strateg [{_role_response_source_label(role_sources.get('strateg', 'heuristic'))}]: "
+            f"{by_agent['strateg']}"
+        )
+        print(
+            f"Analyst [{_role_response_source_label(role_sources.get('analyst', 'heuristic'))}]: "
+            f"{by_agent['analyst']}"
+        )
+        print(
+            f"Operator [{_role_response_source_label(role_sources.get('operator', 'heuristic'))}]: "
+            f"{by_agent['operator']}"
+        )
+        print(
+            f"Governance [{_role_response_source_label(role_sources.get('governance', 'heuristic'))}]: "
+            f"{by_agent['governance']}"
+        )
         print(f"Combined recommendation: {combined}")
         print(f"New decision likely?: {likelihood_label(likely_new_decision)}")
         print(f"Recommended next step: {next_step}")
@@ -1680,6 +1739,10 @@ def main() -> None:
         context_decision_ids = case["context_decision_ids"]
         reasoning_items = case.get("reasoning_items", [])
         by_agent = {response.agent_name: response.response_text for response in responses}
+        role_sources: dict[str, str] = {}
+        provider_name = "heuristic"
+        provider_enabled = False
+        provider_available = False
 
         print(f"Question: {question.question_text}")
         print(f"Topic: {question.topic}")
@@ -1690,6 +1753,16 @@ def main() -> None:
         )
         if analysis is not None:
             assessment_payload = analysis.decision_status_assessment or {}
+            llm_status = (
+                assessment_payload.get("llm_status", {})
+                if isinstance(assessment_payload, dict)
+                else {}
+            )
+            if isinstance(llm_status, dict):
+                role_sources = llm_status.get("role_sources", {}) or {}
+                provider_name = llm_status.get("provider", "heuristic")
+                provider_enabled = bool(llm_status.get("provider_enabled"))
+                provider_available = bool(llm_status.get("provider_available"))
             formal_next_step_text = assessment_payload.get("formal_next_step", analysis.suggested_next_step)
             print(
                 f"Assessment: "
@@ -1706,6 +1779,11 @@ def main() -> None:
                 f"Assessment: {alignment_label(analysis.assessment_alignment)} | "
                 f"Mode: {decision_mode_label(decision_mode) if decision_mode != '-' else '-'} | "
                 f"New decision likelihood: {likelihood_label(analysis.likely_requires_new_decision)}"
+            )
+            print(
+                "Role generation mode: "
+                f"provider={provider_name} | enabled={'yes' if provider_enabled else 'no'} | "
+                f"available={'yes' if provider_available else 'no'}"
             )
             relevant_context = sections.get("relevant_context", {})
             active_ids = relevant_context.get("active_decision_ids", []) if isinstance(relevant_context, dict) else []
@@ -1755,10 +1833,22 @@ def main() -> None:
             print("Combined recommendation: none")
             print("New decision likely?: Probably")
             print("Recommended next step: none")
-        print(f"Strateg: {by_agent.get('strateg', '-')}")
-        print(f"Analyst: {by_agent.get('analyst', '-')}")
-        print(f"Operator: {by_agent.get('operator', '-')}")
-        print(f"Governance: {by_agent.get('governance', '-')}")
+        print(
+            f"Strateg [{_role_response_source_label(role_sources.get('strateg', 'heuristic'))}]: "
+            f"{by_agent.get('strateg', '-')}"
+        )
+        print(
+            f"Analyst [{_role_response_source_label(role_sources.get('analyst', 'heuristic'))}]: "
+            f"{by_agent.get('analyst', '-')}"
+        )
+        print(
+            f"Operator [{_role_response_source_label(role_sources.get('operator', 'heuristic'))}]: "
+            f"{by_agent.get('operator', '-')}"
+        )
+        print(
+            f"Governance [{_role_response_source_label(role_sources.get('governance', 'heuristic'))}]: "
+            f"{by_agent.get('governance', '-')}"
+        )
         print(f"Key reasoning notes: {len(reasoning_items)}")
         print(f"Reasoning summary: {_reasoning_signal_line(reasoning_items)}")
         for item in _sorted_reasoning_items(reasoning_items):

@@ -580,21 +580,26 @@ def build_panel_sections(
     combined: str,
     panel_outcome: models.PanelOutcome,
     suggested_formal_step: str,
+    llm_status: dict[str, object] | None = None,
 ) -> PanelSections:
+    decision_status_assessment = {
+        "decision_mode": panel_outcome.decision_mode,
+        "alignment": assessment.alignment,
+        "reason": assessment.reason,
+        "can_execute_now": panel_outcome.can_execute_now,
+        "likely_requires_new_decision": panel_outcome.likely_requires_new_decision,
+        "formal_next_step": panel_outcome.formal_next_step,
+        "suggested_next_step": suggested_formal_step,
+        "automatic_formalization": False,
+    }
+    if llm_status:
+        decision_status_assessment["llm_status"] = llm_status
+
     return {
         "question_interpretation": question_interpretation(question, context, assessment),
         "relevant_context": relevant_context_summary(context),
         "per_role_analysis": per_role_analysis,
         "tensions": assessment.challenge_points,
         "combined_recommendation": combined,
-        "decision_status_assessment": {
-            "decision_mode": panel_outcome.decision_mode,
-            "alignment": assessment.alignment,
-            "reason": assessment.reason,
-            "can_execute_now": panel_outcome.can_execute_now,
-            "likely_requires_new_decision": panel_outcome.likely_requires_new_decision,
-            "formal_next_step": panel_outcome.formal_next_step,
-            "suggested_next_step": suggested_formal_step,
-            "automatic_formalization": False,
-        },
+        "decision_status_assessment": decision_status_assessment,
     }

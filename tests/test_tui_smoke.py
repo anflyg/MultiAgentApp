@@ -68,7 +68,7 @@ def test_tui_build_question_detail_texts_uses_sections_when_available():
     analysis_text, recommendation_text, status_text = app._build_question_detail_texts(case)
     assert "Interpretation: Execution clarification under current direction." in analysis_text
     assert "Advisor perspectives:" in analysis_text
-    assert "strateg: Stay aligned." in analysis_text
+    assert "strateg [heuristic fallback]: Stay aligned." in analysis_text
     assert "Context and memory signals:" in analysis_text
     assert "Key reasoning notes:" in analysis_text
     assert (
@@ -78,6 +78,7 @@ def test_tui_build_question_detail_texts_uses_sections_when_available():
     assert recommendation_text == "Proceed with staged rollout."
     assert "assessment: Needs clarification before execution" in status_text
     assert "handling mode: Clarify current decision before execution" in status_text
+    assert "role generation: provider=heuristic | enabled=no | available=no" in status_text
     assert "formal_next_step: Document clarification before execution." in status_text
     assert "suggested_next_step: Document owner and sequence." in status_text
     assert "new decision likelihood: Probably" in status_text

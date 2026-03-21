@@ -4,6 +4,7 @@ from multi_agent_app import models
 from multi_agent_app.cli import ask_decision_panel, create_decision, create_session
 from multi_agent_app.llm import NullLLMProvider, apply_role_llm_overrides, provider_from_env
 from multi_agent_app.panel import default_advisor_roles
+from multi_agent_app.storage import Storage
 
 
 class _FakeProvider:
@@ -60,7 +61,7 @@ def test_apply_role_llm_overrides_keeps_heuristics_when_provider_disabled():
         "open_suggestions": [],
         "decision_links": [],
     }
-    output = apply_role_llm_overrides(
+    output, role_sources = apply_role_llm_overrides(
         provider=NullLLMProvider(),
         roles=roles,
         question="How should we proceed?",
@@ -69,6 +70,7 @@ def test_apply_role_llm_overrides_keeps_heuristics_when_provider_disabled():
         heuristic_outputs=heuristic_outputs,
     )
     assert output == heuristic_outputs
+    assert all(source == "heuristic" for source in role_sources.values())
 
 
 def test_ask_decision_panel_accepts_provider_and_overrides_role_text(tmp_path):
@@ -77,7 +79,7 @@ def test_ask_decision_panel_accepts_provider_and_overrides_role_text(tmp_path):
     create_decision(str(db_path), session.id, "Direction", "Ops", "Keep weekly release cadence.")
 
     provider = _FakeProvider()
-    _, _, _, responses, _, _, _ = ask_decision_panel(
+    question, _, _, responses, _, _, _ = ask_decision_panel(
         db_path=str(db_path),
         question="How should we run this change?",
         topic="Ops",
@@ -86,3 +88,14 @@ def test_ask_decision_panel_accepts_provider_and_overrides_role_text(tmp_path):
     assert len(responses) == 4
     assert set(provider.calls) == {"strateg", "analyst", "operator", "governance"}
     assert all("(LLM):" in response.response_text for response in responses)
+    storage = Storage(db_path=str(db_path))
+    try:
+        analysis = storage.get_panel_question_analysis(question.id)
+        assert analysis is not None
+        llm_status = analysis.decision_status_assessment.get("llm_status", {})
+        assert llm_status.get("provider") == "fake"
+        assert llm_status.get("provider_enabled") is True
+        assert llm_status.get("provider_available") is True
+        assert set(llm_status.get("llm_roles", [])) == {"strateg", "analyst", "operator", "governance"}
+    finally:
+        storage.close()

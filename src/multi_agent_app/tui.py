@@ -13,6 +13,11 @@ from .cli import (
 from .panel import alignment_label, build_panel_outcome, decision_mode_label, likelihood_label
 from .storage import Storage
 
+_ROLE_SOURCE_LABELS = {
+    "llm": "LLM",
+    "heuristic": "heuristic fallback",
+}
+
 class MultiAgentTUI(App[None]):
     CSS = """
     Screen { layout: vertical; }
@@ -321,10 +326,25 @@ class MultiAgentTUI(App[None]):
 
         role_lines = []
         role_analysis = sections.get("per_role_analysis", {})
+        status_assessment = sections.get("decision_status_assessment", {})
+        llm_status = (
+            status_assessment.get("llm_status", {})
+            if isinstance(status_assessment, dict)
+            else {}
+        )
+        role_sources = (
+            llm_status.get("role_sources", {})
+            if isinstance(llm_status, dict)
+            else {}
+        )
         if isinstance(role_analysis, dict):
             for role_name in ("strateg", "analyst", "operator", "governance"):
                 if role_name in role_analysis:
-                    role_lines.append(f"- {role_name}: {role_analysis[role_name]}")
+                    source = _ROLE_SOURCE_LABELS.get(
+                        role_sources.get(role_name, "heuristic"),
+                        role_sources.get(role_name, "heuristic"),
+                    )
+                    role_lines.append(f"- {role_name} [{source}]: {role_analysis[role_name]}")
         tensions = sections.get("tensions", []) or []
         tensions_text = " | ".join(tensions) if tensions else "none"
         reasoning_items = case.get("reasoning_items", []) or []
@@ -390,13 +410,17 @@ class MultiAgentTUI(App[None]):
             combined = analysis.combined_recommendation
         recommendation_text = combined or "No recommendation available yet."
 
-        status_assessment = sections.get("decision_status_assessment", {})
         if isinstance(status_assessment, dict) and status_assessment:
             mode_value = status_assessment.get("decision_mode", "-")
+            provider_name = llm_status.get("provider", "heuristic") if isinstance(llm_status, dict) else "heuristic"
+            provider_enabled = bool(llm_status.get("provider_enabled")) if isinstance(llm_status, dict) else False
+            provider_available = bool(llm_status.get("provider_available")) if isinstance(llm_status, dict) else False
             status_text = (
                 f"assessment: {alignment_label(status_assessment.get('alignment', '-'))}\n"
                 f"handling mode: {decision_mode_label(mode_value) if mode_value != '-' else '-'}\n"
                 f"reason: {status_assessment.get('reason', '-')}\n"
+                f"role generation: provider={provider_name} | enabled={'yes' if provider_enabled else 'no'} | "
+                f"available={'yes' if provider_available else 'no'}\n"
                 f"new decision likelihood: {likelihood_label(status_assessment.get('likely_requires_new_decision', '-'))}\n"
                 f"formal_next_step: {status_assessment.get('formal_next_step', '-')}\n"
                 f"suggested_next_step: {status_assessment.get('suggested_next_step', '-')}"
@@ -460,6 +484,17 @@ class MultiAgentTUI(App[None]):
             return
 
         by_agent = {response.agent_name: response.response_text for response in responses}
+        storage = Storage(db_path=self.db_path)
+        try:
+            stored_analysis = storage.get_panel_question_analysis(panel_question.id)
+        finally:
+            storage.close()
+        status_payload = stored_analysis.decision_status_assessment if stored_analysis else {}
+        llm_status = status_payload.get("llm_status", {}) if isinstance(status_payload, dict) else {}
+        role_sources = llm_status.get("role_sources", {}) if isinstance(llm_status, dict) else {}
+        provider_name = llm_status.get("provider", "heuristic") if isinstance(llm_status, dict) else "heuristic"
+        provider_enabled = bool(llm_status.get("provider_enabled")) if isinstance(llm_status, dict) else False
+        provider_available = bool(llm_status.get("provider_available")) if isinstance(llm_status, dict) else False
         output.write(f"Question: {panel_question.question_text}")
         output.write(f"Topic: {panel_question.topic}")
         output.write(
@@ -503,6 +538,11 @@ class MultiAgentTUI(App[None]):
             f"New decision likelihood: {likelihood_label(panel_outcome.likely_requires_new_decision)}"
         )
         output.write(
+            "Role generation mode: "
+            f"provider={provider_name} | enabled={'yes' if provider_enabled else 'no'} | "
+            f"available={'yes' if provider_available else 'no'}"
+        )
+        output.write(
             "Decision context at a glance: "
             f"active={len(context['active_decisions'])} | historical={len(context['historical_decisions'])} | "
             f"open_candidates={len(context['open_candidates'])} | open_suggestions={len(context['open_suggestions'])}"
@@ -511,10 +551,26 @@ class MultiAgentTUI(App[None]):
             "Key concerns: "
             + (" | ".join(assessment.challenge_points) if assessment.challenge_points else "none")
         )
-        output.write(f"Strateg: {by_agent['strateg']}")
-        output.write(f"Analyst: {by_agent['analyst']}")
-        output.write(f"Operator: {by_agent['operator']}")
-        output.write(f"Governance: {by_agent['governance']}")
+        output.write(
+            "Strateg "
+            f"[{_ROLE_SOURCE_LABELS.get(role_sources.get('strateg', 'heuristic'), role_sources.get('strateg', 'heuristic'))}]: "
+            f"{by_agent['strateg']}"
+        )
+        output.write(
+            "Analyst "
+            f"[{_ROLE_SOURCE_LABELS.get(role_sources.get('analyst', 'heuristic'), role_sources.get('analyst', 'heuristic'))}]: "
+            f"{by_agent['analyst']}"
+        )
+        output.write(
+            "Operator "
+            f"[{_ROLE_SOURCE_LABELS.get(role_sources.get('operator', 'heuristic'), role_sources.get('operator', 'heuristic'))}]: "
+            f"{by_agent['operator']}"
+        )
+        output.write(
+            "Governance "
+            f"[{_ROLE_SOURCE_LABELS.get(role_sources.get('governance', 'heuristic'), role_sources.get('governance', 'heuristic'))}]: "
+            f"{by_agent['governance']}"
+        )
         output.write(f"Combined recommendation: {combined}")
         output.write(f"Formal next step: {panel_outcome.formal_next_step}")
         output.write(f"New decision likely?: {likelihood_label(likely_new_decision)}")

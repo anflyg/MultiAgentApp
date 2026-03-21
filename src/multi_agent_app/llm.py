@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import os
-from typing import Any, Mapping, Protocol
+from typing import Mapping, Protocol
 from urllib import error, request
 
 from . import models
@@ -180,6 +180,10 @@ def provider_from_env() -> LLMProvider:
     return OpenAIChatProvider(api_key=api_key, model=model)
 
 
+def provider_enabled_from_env() -> bool:
+    return os.getenv("MULTI_AGENT_APP_LLM_PROVIDER", "").strip().lower() == "openai"
+
+
 def apply_role_llm_overrides(
     *,
     provider: LLMProvider,
@@ -188,10 +192,15 @@ def apply_role_llm_overrides(
     context: Mapping[str, object],
     assessment: models.DecisionAlignmentAssessment,
     heuristic_outputs: Mapping[str, str],
-) -> dict[str, str]:
+) -> tuple[dict[str, str], dict[str, str]]:
     output = dict(heuristic_outputs)
+    role_sources = {
+        role.name: "heuristic"
+        for role in roles
+        if role.name in output
+    }
     if not provider.is_available():
-        return output
+        return output, role_sources
     for role in roles:
         fallback = output.get(role.name, "")
         generated = provider.generate_role_response(
@@ -203,4 +212,5 @@ def apply_role_llm_overrides(
         )
         if generated:
             output[role.name] = generated
-    return output
+            role_sources[role.name] = "llm"
+    return output, role_sources

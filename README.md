@@ -79,6 +79,9 @@ Panelen kor heuristiskt som standard. Ett litet provider-lager finns nu som grun
   - valfritt: `export OPENAI_MODEL=gpt-4o-mini`
 
 Om provider inte ar tillganglig (t.ex. saknad nyckel eller timeout) faller panelen automatiskt tillbaka till heuristik.
+I paneloutput visas detta tydligt via:
+- `Role generation mode: provider=... | enabled=... | available=...`
+- rollrad per advisor: `Strateg [LLM]` eller `Strateg [heuristic fallback]`
 
 ## Snabb demo fran tomt lage
 

@@ -487,12 +487,13 @@ def test_ask_decision_panel_output_includes_required_sections(tmp_path, capsys, 
     assert "Pending decision suggestions:" in output
     assert "Assessment:" in output
     assert "Decision summary:" in output
+    assert "Role generation mode:" in output
     assert "Decision context at a glance:" in output
     assert "Key concerns:" in output
-    assert "Strateg:" in output
-    assert "Analyst:" in output
-    assert "Operator:" in output
-    assert "Governance:" in output
+    assert "Strateg [heuristic fallback]:" in output
+    assert "Analyst [heuristic fallback]:" in output
+    assert "Operator [heuristic fallback]:" in output
+    assert "Governance [heuristic fallback]:" in output
     assert "Combined recommendation:" in output
     assert "New decision likely?:" in output
     assert "Recommended next step:" in output
@@ -528,9 +529,10 @@ def test_show_panel_question_command_loads_saved_case(tmp_path, capsys, monkeypa
     assert "Active decision references:" in output
     assert "Assessment:" in output
     assert "Decision summary:" in output
+    assert "Role generation mode:" in output
     assert "Decision context at a glance:" in output
     assert "Combined recommendation:" in output
-    assert "Strateg:" in output
+    assert "Strateg [heuristic fallback]:" in output
     assert "Key reasoning notes:" in output
     assert "Reasoning summary:" in output
     assert "Next steps:" in output
