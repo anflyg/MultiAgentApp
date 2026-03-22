@@ -7,6 +7,7 @@ __all__ = [
     "orchestrator",
     "llm",
     "memory_core",
+    "memory_retrieval",
     "config",
     "cli",
     "tui",
