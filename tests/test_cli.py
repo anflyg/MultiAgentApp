@@ -12,6 +12,7 @@ from multi_agent_app.cli import (
     main,
     route_task_by_id,
     run_example_flow,
+    vd_scenario_setup,
 )
 from multi_agent_app.storage import Storage
 
@@ -819,6 +820,45 @@ def test_alpha_demo_setup_function_and_command(tmp_path, capsys, monkeypatch):
         assert questions
     finally:
         storage.close()
+
+
+def test_vd_scenario_setup_function_and_command(tmp_path, capsys, monkeypatch):
+    db_path = tmp_path / "vd_scenario_setup.db"
+    result = vd_scenario_setup(db_path=str(db_path))
+    workspaces = result["workspaces"]
+    assert len(workspaces) == 3
+    assert len(result["question_ids"]) == 6
+
+    storage = Storage(db_path=str(db_path))
+    try:
+        names = {workspace.name for workspace in storage.list_workspaces()}
+        assert "Strategi / Expansion" in names
+        assert "Ekonomi / Likviditet" in names
+        assert "Organisation / Personal" in names
+        for workspace_name in ("Strategi / Expansion", "Ekonomi / Likviditet", "Organisation / Personal"):
+            workspace = storage.get_workspace_by_name(workspace_name)
+            assert workspace is not None
+            questions = storage.list_panel_questions(workspace_id=workspace.id, limit=20)
+            assert len(questions) >= 2
+    finally:
+        storage.close()
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "main.py",
+            "--db-path",
+            str(db_path),
+            "vd-scenario-setup",
+        ],
+    )
+    main()
+    output = capsys.readouterr().out
+    assert "VD scenario is ready." in output
+    assert "Workspaces seeded: 3" in output
+    assert "Validation checklist:" in output
+    assert "Suggested verification commands:" in output
 
 
 def test_cli_default_run_prints_onboarding_tip(tmp_path, capsys, monkeypatch):

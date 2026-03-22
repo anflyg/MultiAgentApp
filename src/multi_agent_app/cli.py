@@ -1374,6 +1374,150 @@ def alpha_demo_setup(
     }
 
 
+def _get_or_create_workspace(
+    storage: Storage,
+    *,
+    name: str,
+    description: str,
+) -> models.Workspace:
+    existing = storage.get_workspace_by_name(name)
+    if existing is not None:
+        return existing
+    return storage.create_workspace(name=name, description=description)
+
+
+def vd_scenario_setup(db_path: str) -> dict[str, object]:
+    scenario = [
+        {
+            "workspace": "Strategi / Expansion",
+            "description": "Marknadsexpansion, prioriteringar och strategiska vägval.",
+            "topic": "Expansion",
+            "active_decision": {
+                "title": "Expansion sequence 2026",
+                "text": "Pause expansion in market X until gross margin recovery is stable for two quarters.",
+                "rationale": "Protect cash and execution capacity while preserving optionality.",
+            },
+            "candidate": {
+                "title": "Conditional restart candidate",
+                "text": "Allow limited restart in market X if retention and margin targets are met.",
+                "rationale": "Keep a controlled restart path ready if key indicators improve.",
+            },
+            "questions": [
+                "Ska vi pausa expansion i marknad X tills vi ser stabil bruttomarginal igen?",
+                "Är detta ett genomförandebeslut eller behöver vi ett nytt styrande beslut innan vi går vidare?",
+            ],
+        },
+        {
+            "workspace": "Ekonomi / Likviditet",
+            "description": "Likviditet, investeringstakt och kapitaldisciplin.",
+            "topic": "Likviditet",
+            "active_decision": {
+                "title": "Cash runway discipline",
+                "text": "Maintain at least 12 months runway and prioritize investments with payback under 18 months.",
+                "rationale": "Reduce liquidity risk while preserving strategic investments.",
+            },
+            "candidate": {
+                "title": "Investment pace exception candidate",
+                "text": "Allow temporary increase in investment pace next quarter if runway remains above 14 months.",
+                "rationale": "Enable selective acceleration without compromising baseline liquidity policy.",
+            },
+            "questions": [
+                "Har vi råd att höja investeringstakten nästa kvartal utan att riskera vår runway?",
+                "Vad är nästa formella steg innan vi beslutar om ökad investeringstakt?",
+            ],
+        },
+        {
+            "workspace": "Organisation / Personal",
+            "description": "Ledningsstruktur, rekrytering och organisatorisk kapacitet.",
+            "topic": "Organisation",
+            "active_decision": {
+                "title": "Leadership hiring gate",
+                "text": "Hire new executive roles only when ownership gaps block delivery against current strategy.",
+                "rationale": "Avoid leadership layer inflation while protecting execution speed.",
+            },
+            "candidate": {
+                "title": "CFO timing candidate",
+                "text": "Open CFO recruitment this quarter if reporting complexity continues to delay decisions.",
+                "rationale": "Create explicit trigger for when finance leadership capacity must be increased.",
+            },
+            "questions": [
+                "Bör vi rekrytera en ny ledningsroll nu, eller räcker nuvarande struktur för nästa två kvartal?",
+                "Vilket formellt nästa steg krävs innan vi startar en rekrytering på ledningsnivå?",
+            ],
+        },
+    ]
+
+    workspace_results: list[dict[str, object]] = []
+    created_question_ids: list[str] = []
+    active_workspace_before: models.Workspace | None = None
+
+    storage = Storage(db_path=db_path)
+    orchestrator = Orchestrator(storage, agents=_default_agents())
+    try:
+        active_workspace_before = storage.get_active_workspace()
+        for item in scenario:
+            workspace = _get_or_create_workspace(
+                storage,
+                name=item["workspace"],
+                description=item["description"],
+            )
+            session = orchestrator.create_session(
+                f"VD Scenario - {workspace.name}",
+                workspace_id=workspace.id,
+            )
+            active_decision = create_decision(
+                db_path=db_path,
+                session_id=session.id,
+                title=item["active_decision"]["title"],
+                topic=item["topic"],
+                decision_text=item["active_decision"]["text"],
+                rationale=item["active_decision"]["rationale"],
+                owner="vd",
+                tags=["vd-scenario", "active"],
+            )
+            candidate = create_decision_candidate(
+                db_path=db_path,
+                session_id=session.id,
+                title=item["candidate"]["title"],
+                topic=item["topic"],
+                candidate_text=item["candidate"]["text"],
+                rationale=item["candidate"]["rationale"],
+                owner="vd",
+                tags=["vd-scenario", "candidate"],
+            )
+
+            questions_created: list[models.ExecutiveQuestion] = []
+            for question_text in item["questions"]:
+                panel_question, _, _, _, _, _, _ = ask_decision_panel(
+                    db_path=db_path,
+                    question=question_text,
+                    topic=item["topic"],
+                    session_id=session.id,
+                    workspace_id=workspace.id,
+                )
+                questions_created.append(panel_question)
+                created_question_ids.append(panel_question.id)
+
+            workspace_results.append(
+                {
+                    "workspace": workspace,
+                    "session": session,
+                    "active_decision": active_decision,
+                    "candidate": candidate,
+                    "questions": questions_created,
+                }
+            )
+        return {
+            "workspaces": workspace_results,
+            "question_ids": created_question_ids,
+            "active_workspace_before": active_workspace_before,
+        }
+    finally:
+        if active_workspace_before is not None:
+            storage.set_active_workspace(active_workspace_before.id)
+        storage.close()
+
+
 def _build_parser(config: AppConfig, config_path: str | None = None) -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="MultiAgentApp CLI.")
     parser.add_argument("--config-path", default=config_path, help="Path to user config file.")
@@ -1616,6 +1760,11 @@ def _build_parser(config: AppConfig, config_path: str | None = None) -> argparse
         "--question",
         default="Ska vi öppna Danmark ändå trots att Norge är försenat?",
         help="Panel question to run for the demo seed.",
+    )
+
+    subparsers.add_parser(
+        "vd-scenario-setup",
+        help="Seed a practical multi-workspace CEO scenario with realistic leadership questions.",
     )
 
     subparsers.add_parser("tui", help="Launch Textual terminal UI.")
@@ -2475,6 +2624,38 @@ def main() -> None:
             f"show-panel-question --question-id {panel_question.id}"
         )
         print(f"- python src/main.py --db-path {args.db_path} list-panel-questions --topic {args.topic}")
+        print(f"- python src/main.py --db-path {args.db_path} tui")
+        return
+
+    if args.command == "vd-scenario-setup":
+        result = vd_scenario_setup(db_path=args.db_path)
+        workspaces = result["workspaces"]
+        print("VD scenario is ready.")
+        print(f"Workspaces seeded: {len(workspaces)}")
+        for item in workspaces:
+            workspace = item["workspace"]
+            session = item["session"]
+            questions = item["questions"]
+            print(
+                f"- {workspace.name} | session={session.id[:8]} | "
+                f"questions={len(questions)} | active_decision={item['active_decision'].id[:8]}"
+            )
+        print("Validation checklist:")
+        print("1. Ensure each workspace has its own panel questions and decision context.")
+        print("2. Ensure switching workspace changes what list-panel-questions shows by default.")
+        print("3. Ensure panel next-step guidance feels actionable for leadership decisions.")
+        print("Suggested verification commands:")
+        for item in workspaces:
+            workspace = item["workspace"]
+            topic = item["active_decision"].topic
+            question_id = item["questions"][0].id
+            print(f"- python src/main.py --db-path {args.db_path} workspace-use --name \"{workspace.name}\"")
+            print(f"- python src/main.py --db-path {args.db_path} list-panel-questions --topic \"{topic}\"")
+            print(
+                f"- python src/main.py --db-path {args.db_path} "
+                f"show-panel-question --question-id {question_id}"
+            )
+        print(f"- python src/main.py --db-path {args.db_path} doctor")
         print(f"- python src/main.py --db-path {args.db_path} tui")
         return
 
