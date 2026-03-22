@@ -951,6 +951,119 @@ def test_cli_pilot_feedback_loop(tmp_path, capsys, monkeypatch):
     assert "helpfulness=helpful" in report_output
 
 
+def test_cli_pilot_insights_shows_counts_and_unrated(tmp_path, capsys, monkeypatch):
+    db_path = tmp_path / "pilot_insights.db"
+    session = create_session(str(db_path), "Pilot Insights Session")
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "main.py",
+            "--db-path",
+            str(db_path),
+            "create-decision",
+            "--session-id",
+            session.id,
+            "--title",
+            "Likviditetsram Q3",
+            "--topic",
+            "Likviditet",
+            "--text",
+            "Håll investeringar inom kassaflödesmål.",
+        ],
+    )
+    main()
+    capsys.readouterr()
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "main.py",
+            "--db-path",
+            str(db_path),
+            "pilot-ask",
+            "--topic",
+            "Likviditet",
+            "--question",
+            "Har vi råd att öka investeringstakten nästa kvartal?",
+        ],
+    )
+    main()
+    first_output = capsys.readouterr().out
+    first_question_id = next(
+        line.split(": ", 1)[1].strip()
+        for line in first_output.splitlines()
+        if line.startswith("Question id:")
+    )
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "main.py",
+            "--db-path",
+            str(db_path),
+            "pilot-feedback",
+            "--question-id",
+            first_question_id,
+            "--helpfulness",
+            "helpful",
+            "--length",
+            "good",
+            "--context-fit",
+            "clear",
+        ],
+    )
+    main()
+    capsys.readouterr()
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "main.py",
+            "--db-path",
+            str(db_path),
+            "pilot-ask",
+            "--topic",
+            "Likviditet",
+            "--question",
+            "Bör vi frysa nyrekryteringar tills kassabufferten stärks?",
+        ],
+    )
+    main()
+    second_output = capsys.readouterr().out
+    second_question_id = next(
+        line.split(": ", 1)[1].strip()
+        for line in second_output.splitlines()
+        if line.startswith("Question id:")
+    )
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "main.py",
+            "--db-path",
+            str(db_path),
+            "pilot-insights",
+            "--limit",
+            "10",
+        ],
+    )
+    main()
+    insights_output = capsys.readouterr().out
+    assert "Pilot insights" in insights_output
+    assert "rated=1, unrated=1" in insights_output
+    assert "Workspace:" in insights_output
+    assert "helpful=1 partial=0 not_helpful=0" in insights_output
+    assert "Unrated questions: 1" in insights_output
+    assert "Priority signals:" in insights_output
+    assert "Questions without feedback:" in insights_output
+    assert second_question_id in insights_output
+
+
 def test_cli_default_run_prints_onboarding_tip(tmp_path, capsys, monkeypatch):
     db_path = tmp_path / "default_cli_onboarding.db"
     monkeypatch.setattr(

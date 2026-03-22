@@ -1334,6 +1334,72 @@ def list_pilot_report(
         storage.close()
 
 
+def _summarize_pilot_rows(rows: list[dict[str, object]]) -> dict[str, object]:
+    helpfulness_counts: Counter[str] = Counter()
+    length_counts: Counter[str] = Counter()
+    context_fit_counts: Counter[str] = Counter()
+    unrated_questions: list[models.ExecutiveQuestion] = []
+
+    for row in rows:
+        question = row.get("question")
+        feedback = row.get("feedback")
+        if not isinstance(question, models.ExecutiveQuestion):
+            continue
+        if feedback is None:
+            unrated_questions.append(question)
+            continue
+        if not isinstance(feedback, models.PilotFeedback):
+            continue
+        helpfulness_counts[feedback.helpfulness] += 1
+        length_counts[feedback.length] += 1
+        context_fit_counts[feedback.context_fit] += 1
+
+    rated_count = sum(helpfulness_counts.values())
+    return {
+        "total_questions": len(rows),
+        "rated_count": rated_count,
+        "unrated_count": len(unrated_questions),
+        "helpfulness_counts": helpfulness_counts,
+        "length_counts": length_counts,
+        "context_fit_counts": context_fit_counts,
+        "unrated_questions": unrated_questions,
+    }
+
+
+def _pilot_priority_signals(summary: dict[str, object]) -> list[str]:
+    rated_count = int(summary["rated_count"])
+    unrated_count = int(summary["unrated_count"])
+    helpfulness_counts = summary["helpfulness_counts"]
+    length_counts = summary["length_counts"]
+    context_fit_counts = summary["context_fit_counts"]
+    if not isinstance(helpfulness_counts, Counter):
+        helpfulness_counts = Counter()
+    if not isinstance(length_counts, Counter):
+        length_counts = Counter()
+    if not isinstance(context_fit_counts, Counter):
+        context_fit_counts = Counter()
+
+    signals: list[str] = []
+    partial_count = helpfulness_counts.get("partial", 0)
+    not_helpful_count = helpfulness_counts.get("not_helpful", 0)
+    long_count = length_counts.get("long", 0)
+    unclear_count = context_fit_counts.get("unclear", 0)
+
+    if rated_count >= 3 and partial_count * 2 >= rated_count:
+        signals.append("Tighten recommendation precision and make next step more concrete (many partial ratings).")
+    if rated_count >= 1 and not_helpful_count * 5 >= rated_count:
+        signals.append("Review low-helpfulness answers and adjust decision support framing.")
+    if rated_count >= 3 and long_count * 2 >= rated_count:
+        signals.append("Reduce default response length in this workspace.")
+    if rated_count >= 1 and unclear_count * 4 >= rated_count:
+        signals.append("Clarify workspace/context framing before recommendation.")
+    if unrated_count > 0:
+        signals.append("Collect feedback on remaining unrated pilot questions.")
+    if not signals:
+        signals.append("No strong negative signal yet; keep flow and collect more pilot feedback.")
+    return signals
+
+
 def _truncate_question(text: str, max_length: int = 90) -> str:
     compact = " ".join(text.strip().split())
     if len(compact) <= max_length:
@@ -1834,6 +1900,17 @@ def _build_parser(config: AppConfig, config_path: str | None = None) -> argparse
         action="store_true",
         help="Include questions without recorded feedback.",
     )
+    pilot_insights_parser = subparsers.add_parser(
+        "pilot-insights",
+        help="Summarize pilot feedback and show prioritized improvement signals.",
+    )
+    pilot_insights_parser.add_argument("--workspace-id", help="Optional workspace id override.")
+    pilot_insights_parser.add_argument(
+        "--all-workspaces",
+        action="store_true",
+        help="Summarize every workspace and include an overall total.",
+    )
+    pilot_insights_parser.add_argument("--limit", type=int, default=50, help="Maximum questions per workspace.")
 
     show_panel_question_parser = subparsers.add_parser(
         "show-panel-question", help="Show a previously stored panel question and analysis."
@@ -2495,6 +2572,112 @@ def main() -> None:
                 )
         if not rows:
             print("No pilot rows found for this scope yet.")
+        return
+
+    if args.command == "pilot-insights":
+        storage = Storage(db_path=args.db_path)
+        try:
+            workspace_index = {workspace.id: workspace for workspace in storage.list_workspaces()}
+        finally:
+            storage.close()
+
+        selected_workspace_id = args.workspace_id or active_workspace.id
+        workspace_ids: list[str]
+        if args.all_workspaces:
+            workspace_ids = list(workspace_index.keys())
+        else:
+            workspace_ids = [selected_workspace_id]
+
+        rows_by_workspace: dict[str, list[dict[str, object]]] = {}
+        for workspace_id in workspace_ids:
+            rows_by_workspace[workspace_id] = list_pilot_report(
+                args.db_path,
+                workspace_id=workspace_id,
+                limit=args.limit,
+                include_unrated=True,
+            )
+
+        all_rows = [row for rows in rows_by_workspace.values() for row in rows]
+        total_summary = _summarize_pilot_rows(all_rows)
+        scope_label = "all workspaces" if args.all_workspaces else selected_workspace_id
+        helpfulness_counts = total_summary["helpfulness_counts"]
+        length_counts = total_summary["length_counts"]
+        context_fit_counts = total_summary["context_fit_counts"]
+        if not isinstance(helpfulness_counts, Counter):
+            helpfulness_counts = Counter()
+        if not isinstance(length_counts, Counter):
+            length_counts = Counter()
+        if not isinstance(context_fit_counts, Counter):
+            context_fit_counts = Counter()
+        print(
+            f"Pilot insights (scope={scope_label}, questions={total_summary['total_questions']}, "
+            f"rated={total_summary['rated_count']}, unrated={total_summary['unrated_count']})"
+        )
+        print(
+            "Totals: "
+            f"helpful={helpfulness_counts.get('helpful', 0)} "
+            f"partial={helpfulness_counts.get('partial', 0)} "
+            f"not_helpful={helpfulness_counts.get('not_helpful', 0)} | "
+            f"length short={length_counts.get('short', 0)} "
+            f"good={length_counts.get('good', 0)} "
+            f"long={length_counts.get('long', 0)} | "
+            f"context clear={context_fit_counts.get('clear', 0)} "
+            f"unclear={context_fit_counts.get('unclear', 0)}"
+        )
+
+        for workspace_id in workspace_ids:
+            rows = rows_by_workspace[workspace_id]
+            workspace = workspace_index.get(workspace_id)
+            workspace_name = workspace.name if workspace else workspace_id
+            summary = _summarize_pilot_rows(rows)
+            helpfulness_counts = summary["helpfulness_counts"]
+            length_counts = summary["length_counts"]
+            context_fit_counts = summary["context_fit_counts"]
+            unrated_questions = summary["unrated_questions"]
+            if not isinstance(helpfulness_counts, Counter):
+                helpfulness_counts = Counter()
+            if not isinstance(length_counts, Counter):
+                length_counts = Counter()
+            if not isinstance(context_fit_counts, Counter):
+                context_fit_counts = Counter()
+            if not isinstance(unrated_questions, list):
+                unrated_questions = []
+
+            print(f"Workspace: {workspace_name} ({workspace_id})")
+            print(
+                f"Rated questions: {summary['rated_count']} | "
+                f"Unrated questions: {summary['unrated_count']} | "
+                f"Total: {summary['total_questions']}"
+            )
+            print(
+                "Helpfulness: "
+                f"helpful={helpfulness_counts.get('helpful', 0)} "
+                f"partial={helpfulness_counts.get('partial', 0)} "
+                f"not_helpful={helpfulness_counts.get('not_helpful', 0)}"
+            )
+            print(
+                "Length: "
+                f"short={length_counts.get('short', 0)} "
+                f"good={length_counts.get('good', 0)} "
+                f"long={length_counts.get('long', 0)}"
+            )
+            print(
+                "Context fit: "
+                f"clear={context_fit_counts.get('clear', 0)} "
+                f"unclear={context_fit_counts.get('unclear', 0)}"
+            )
+            print("Priority signals:")
+            for index, signal in enumerate(_pilot_priority_signals(summary), start=1):
+                print(f"  {index}. {signal}")
+            if unrated_questions:
+                print("Questions without feedback:")
+                for question in unrated_questions[:10]:
+                    print(f"  - {question.id} | {_truncate_question(question.question_text, max_length=75)}")
+                remaining = len(unrated_questions) - min(len(unrated_questions), 10)
+                if remaining > 0:
+                    print(f"  - ... and {remaining} more")
+            else:
+                print("Questions without feedback: none")
         return
 
     if args.command == "ask-decision-panel":
