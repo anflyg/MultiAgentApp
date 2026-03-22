@@ -1129,6 +1129,26 @@ def ask_decision_panel(
                 heuristic_outputs=heuristic_role_outputs,
             )
         )
+        # Keep full provider mapping visible in stored status, even when some roles are inactive.
+        for role in all_roles:
+            if role.name in role_provider_config:
+                continue
+            if llm_provider is not None:
+                provider_name = resolved_provider.name
+                model = getattr(resolved_provider, "model", None)
+                available = resolved_provider.is_available()
+            else:
+                provider_name, model = resolve_role_provider_and_model(role.name, app_config=app_config)
+                available = (
+                    bool(resolve_api_key(provider_name, app_config))
+                    if provider_name in {"openai", "gemini"}
+                    else False
+                )
+            role_provider_config[role.name] = {
+                "provider": provider_name,
+                "model": model,
+            }
+            role_provider_available[role.name] = available
         provider_enabled = (
             provider_enabled_from_env(app_config)
             if llm_provider is None
