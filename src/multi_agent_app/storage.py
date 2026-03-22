@@ -7,6 +7,10 @@ from typing import Iterable, List, Optional
 
 from . import models
 
+DEFAULT_WORKSPACE_NAME = "Default"
+DEFAULT_WORKSPACE_DESCRIPTION = "Default workspace for uncategorized work."
+ACTIVE_WORKSPACE_STATE_KEY = "active_workspace_id"
+
 
 def _to_iso(dt: datetime) -> str:
     return dt.astimezone(timezone.utc).replace(microsecond=0).isoformat()
@@ -33,8 +37,20 @@ class Storage:
             CREATE TABLE IF NOT EXISTS sessions (
                 id TEXT PRIMARY KEY,
                 name TEXT NOT NULL,
+                workspace_id TEXT,
                 status TEXT NOT NULL DEFAULT 'active',
+                created_at TEXT NOT NULL,
+                FOREIGN KEY(workspace_id) REFERENCES workspaces(id)
+            );
+            CREATE TABLE IF NOT EXISTS workspaces (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL UNIQUE,
+                description TEXT NOT NULL DEFAULT '',
                 created_at TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS app_state (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL
             );
             CREATE TABLE IF NOT EXISTS tasks (
                 id TEXT PRIMARY KEY,
@@ -151,9 +167,11 @@ class Storage:
                 question_text TEXT,
                 topic TEXT NOT NULL,
                 session_id TEXT,
+                workspace_id TEXT,
                 status TEXT NOT NULL DEFAULT 'open',
                 created_at TEXT NOT NULL,
-                FOREIGN KEY(session_id) REFERENCES sessions(id)
+                FOREIGN KEY(session_id) REFERENCES sessions(id),
+                FOREIGN KEY(workspace_id) REFERENCES workspaces(id)
             );
             CREATE TABLE IF NOT EXISTS panel_responses (
                 id TEXT PRIMARY KEY,
@@ -189,6 +207,7 @@ class Storage:
             );
             """
         )
+        self._ensure_column("sessions", "workspace_id", "TEXT")
         self._ensure_column("sessions", "status", "TEXT NOT NULL DEFAULT 'active'")
         self._ensure_column("tasks", "priority", "INTEGER NOT NULL DEFAULT 0")
         self._ensure_column("tasks", "owner_agent", "TEXT")
@@ -219,6 +238,7 @@ class Storage:
             "reasoning_items", "memory_level", "TEXT NOT NULL DEFAULT 'private_context'"
         )
         self._ensure_column("panel_questions", "question_text", "TEXT")
+        self._ensure_column("panel_questions", "workspace_id", "TEXT")
         self._ensure_column("panel_questions", "status", "TEXT NOT NULL DEFAULT 'open'")
         self._ensure_column("panel_question_analyses", "question_interpretation", "TEXT")
         self._ensure_column(
@@ -233,6 +253,14 @@ class Storage:
             "decision_status_assessment",
             "TEXT NOT NULL DEFAULT '{}'",
         )
+        default_workspace = self._get_or_create_default_workspace()
+        self._conn.execute(
+            "UPDATE sessions SET workspace_id = ? WHERE workspace_id IS NULL OR workspace_id = ''",
+            (default_workspace.id,),
+        )
+        active_workspace = self._read_active_workspace()
+        if active_workspace is None or self.get_workspace(active_workspace) is None:
+            self._write_state(ACTIVE_WORKSPACE_STATE_KEY, default_workspace.id)
         self._conn.commit()
 
     def _ensure_column(self, table: str, column: str, definition: str) -> None:
@@ -241,10 +269,122 @@ class Storage:
         if column not in existing_columns:
             self._conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
 
-    def add_session(self, session: models.Session) -> None:
+    def _write_state(self, key: str, value: str) -> None:
         self._conn.execute(
-            "INSERT OR REPLACE INTO sessions (id, name, status, created_at) VALUES (?, ?, ?, ?)",
-            (session.id, session.name, session.status, _to_iso(session.created_at)),
+            "INSERT OR REPLACE INTO app_state (key, value) VALUES (?, ?)",
+            (key, value),
+        )
+
+    def _read_state(self, key: str) -> str | None:
+        row = self._conn.execute(
+            "SELECT value FROM app_state WHERE key = ?",
+            (key,),
+        ).fetchone()
+        return row["value"] if row else None
+
+    def _read_active_workspace(self) -> str | None:
+        return self._read_state(ACTIVE_WORKSPACE_STATE_KEY)
+
+    def _workspace_from_row(self, row: sqlite3.Row) -> models.Workspace:
+        return models.Workspace(
+            id=row["id"],
+            name=row["name"],
+            description=row["description"],
+            created_at=_from_iso(row["created_at"]),
+        )
+
+    def _get_or_create_default_workspace(self) -> models.Workspace:
+        row = self._conn.execute(
+            "SELECT * FROM workspaces WHERE name = ?",
+            (DEFAULT_WORKSPACE_NAME,),
+        ).fetchone()
+        if row:
+            return self._workspace_from_row(row)
+        workspace = models.Workspace(
+            name=DEFAULT_WORKSPACE_NAME,
+            description=DEFAULT_WORKSPACE_DESCRIPTION,
+        )
+        self._conn.execute(
+            """
+            INSERT INTO workspaces (id, name, description, created_at)
+            VALUES (?, ?, ?, ?)
+            """,
+            (workspace.id, workspace.name, workspace.description, _to_iso(workspace.created_at)),
+        )
+        return workspace
+
+    def create_workspace(self, name: str, description: str = "") -> models.Workspace:
+        normalized_name = " ".join(name.strip().split())
+        if not normalized_name:
+            raise ValueError("Workspace name cannot be empty")
+        workspace = models.Workspace(
+            name=normalized_name,
+            description=description.strip(),
+        )
+        self._conn.execute(
+            """
+            INSERT INTO workspaces (id, name, description, created_at)
+            VALUES (?, ?, ?, ?)
+            """,
+            (workspace.id, workspace.name, workspace.description, _to_iso(workspace.created_at)),
+        )
+        self._conn.commit()
+        return workspace
+
+    def list_workspaces(self) -> List[models.Workspace]:
+        rows = self._conn.execute(
+            "SELECT * FROM workspaces ORDER BY created_at",
+        ).fetchall()
+        return [self._workspace_from_row(row) for row in rows]
+
+    def get_workspace(self, workspace_id: str) -> models.Workspace | None:
+        row = self._conn.execute(
+            "SELECT * FROM workspaces WHERE id = ?",
+            (workspace_id,),
+        ).fetchone()
+        if row is None:
+            return None
+        return self._workspace_from_row(row)
+
+    def get_workspace_by_name(self, name: str) -> models.Workspace | None:
+        row = self._conn.execute(
+            "SELECT * FROM workspaces WHERE lower(name) = lower(?)",
+            (name.strip(),),
+        ).fetchone()
+        if row is None:
+            return None
+        return self._workspace_from_row(row)
+
+    def get_active_workspace(self) -> models.Workspace:
+        active_workspace_id = self._read_active_workspace()
+        workspace = (
+            self.get_workspace(active_workspace_id)
+            if active_workspace_id is not None
+            else None
+        )
+        if workspace is not None:
+            return workspace
+        workspace = self._get_or_create_default_workspace()
+        self._write_state(ACTIVE_WORKSPACE_STATE_KEY, workspace.id)
+        self._conn.commit()
+        return workspace
+
+    def set_active_workspace(self, workspace_id: str) -> models.Workspace:
+        workspace = self.get_workspace(workspace_id)
+        if workspace is None:
+            raise ValueError(f"Workspace '{workspace_id}' was not found")
+        self._write_state(ACTIVE_WORKSPACE_STATE_KEY, workspace.id)
+        self._conn.commit()
+        return workspace
+
+    def add_session(self, session: models.Session) -> None:
+        workspace_id = session.workspace_id or self.get_active_workspace().id
+        self._conn.execute(
+            """
+            INSERT OR REPLACE INTO sessions (id, name, workspace_id, status, created_at)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (session.id, session.name, workspace_id, session.status, _to_iso(session.created_at)),
         )
         self._conn.commit()
 
@@ -264,6 +404,7 @@ class Storage:
         return models.Session(
             id=row["id"],
             name=row["name"],
+            workspace_id=row["workspace_id"] if "workspace_id" in row.keys() else None,
             status=row["status"],
             created_at=_from_iso(row["created_at"]),
         )
@@ -276,6 +417,27 @@ class Storage:
             models.Session(
                 id=row["id"],
                 name=row["name"],
+                workspace_id=row["workspace_id"] if "workspace_id" in row.keys() else None,
+                status=row["status"],
+                created_at=_from_iso(row["created_at"]),
+            )
+            for row in rows
+        ]
+
+    def list_sessions_for_workspace(self, workspace_id: str) -> List[models.Session]:
+        rows = self._conn.execute(
+            """
+            SELECT * FROM sessions
+            WHERE workspace_id = ?
+            ORDER BY created_at DESC
+            """,
+            (workspace_id,),
+        ).fetchall()
+        return [
+            models.Session(
+                id=row["id"],
+                name=row["name"],
+                workspace_id=row["workspace_id"] if "workspace_id" in row.keys() else None,
                 status=row["status"],
                 created_at=_from_iso(row["created_at"]),
             )
@@ -713,11 +875,18 @@ class Storage:
         )
 
     def add_panel_question(self, question: models.ExecutiveQuestion) -> None:
+        workspace_id = question.workspace_id
+        if workspace_id is None and question.session_id:
+            session = self.get_session(question.session_id)
+            if session is not None:
+                workspace_id = session.workspace_id
+        if workspace_id is None:
+            workspace_id = self.get_active_workspace().id
         self._conn.execute(
             """
             INSERT OR REPLACE INTO panel_questions (
-                id, question, question_text, topic, session_id, status, created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                id, question, question_text, topic, session_id, workspace_id, status, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 question.id,
@@ -725,6 +894,7 @@ class Storage:
                 question.question_text,
                 question.topic,
                 question.session_id,
+                workspace_id,
                 question.status,
                 _to_iso(question.created_at),
             ),
@@ -743,6 +913,7 @@ class Storage:
     def list_panel_questions(
         self,
         session_id: str | None = None,
+        workspace_id: str | None = None,
         topic: str | None = None,
         limit: int = 20,
     ) -> List[models.ExecutiveQuestion]:
@@ -753,6 +924,9 @@ class Storage:
         if session_id:
             conditions.append("session_id = ?")
             params.append(session_id)
+        if workspace_id:
+            conditions.append("workspace_id = ?")
+            params.append(workspace_id)
         if topic:
             conditions.append("topic = ?")
             params.append(topic)
@@ -772,6 +946,7 @@ class Storage:
             question_text=question_text,
             topic=row["topic"],
             session_id=row["session_id"],
+            workspace_id=row["workspace_id"] if "workspace_id" in row.keys() else None,
             status=row["status"] if "status" in row.keys() and row["status"] else "open",
             created_at=_from_iso(row["created_at"]),
         )

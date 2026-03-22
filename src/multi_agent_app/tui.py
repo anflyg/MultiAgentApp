@@ -30,6 +30,12 @@ class MultiAgentTUI(App[None]):
       height: auto;
       min-height: 4;
     }
+    #workspace-banner {
+      padding: 1;
+      border: tall $success;
+      height: auto;
+      min-height: 3;
+    }
     #question-analysis, #question-recommendation, #question-status,
     #active-decisions, #open-candidates, #open-suggestions, #recent-activity, #decision-detail {
       border: round $panel;
@@ -58,6 +64,7 @@ class MultiAgentTUI(App[None]):
     #question-analysis { height: 2fr; min-height: 7; }
     #question-recommendation, #question-status { min-height: 5; }
     #panel-actions { height: auto; }
+    #workspace-actions { height: auto; }
     #panel-output { height: 16; border: round $panel; }
     #status { padding: 1; }
     """
@@ -68,11 +75,18 @@ class MultiAgentTUI(App[None]):
         self._active_decision_ids: list[str] = []
         self._recent_question_ids: list[str] = []
         self._selected_question_id: str | None = None
+        self._active_workspace_id: str | None = None
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
         with Horizontal(id="root"):
             with Vertical(id="left"):
+                yield Static("", id="workspace-banner")
+                yield Select([], prompt="Select workspace", id="workspace-select", allow_blank=False)
+                with Horizontal(id="workspace-actions"):
+                    yield Input(placeholder="New workspace name", id="workspace-name")
+                    yield Input(placeholder="Description", id="workspace-description")
+                    yield Button("Create", id="workspace-create", variant="primary")
                 yield Static("Summary", classes="section-title")
                 yield Static("", id="summary")
                 with Horizontal(id="panel-actions"):
@@ -137,15 +151,37 @@ class MultiAgentTUI(App[None]):
     def _refresh_dashboard(self) -> None:
         storage = Storage(db_path=self.db_path)
         try:
+            workspaces = storage.list_workspaces()
+            active_workspace = storage.get_active_workspace()
+            self._active_workspace_id = active_workspace.id
             active_decisions = storage.list_active_decisions()
             open_candidates = storage.list_open_decision_candidates()
             open_suggestions = storage.list_open_decision_suggestions()
             recent_events = storage.list_recent_session_events(limit=10)
-            recent_questions = storage.list_panel_questions(limit=10)
+            recent_questions = storage.list_panel_questions(
+                workspace_id=active_workspace.id,
+                limit=10,
+            )
         finally:
             storage.close()
 
+        workspace_banner = (
+            f"Active workspace: {active_workspace.name} ({active_workspace.id[:8]})\n"
+            f"{active_workspace.description or 'No description'}"
+        )
+        self.query_one("#workspace-banner", Static).update(workspace_banner)
+
+        workspace_select = self.query_one("#workspace-select", Select)
+        workspace_options = [
+            (f"{workspace.name} | {workspace.description or '-'}", workspace.id)
+            for workspace in workspaces
+        ]
+        workspace_select.set_options(workspace_options)
+        if workspace_options:
+            workspace_select.value = active_workspace.id
+
         summary_text = (
+            f"Workspace: {active_workspace.name}\n"
             f"Recent questions: {len(recent_questions)}\n"
             f"Active decisions: {len(active_decisions)}\n"
             f"Pending candidates: {len(open_candidates)}\n"
@@ -407,6 +443,7 @@ class MultiAgentTUI(App[None]):
         analysis_text = (
             f"Question: {question.question_text}\n"
             f"Topic: {question.topic}\n"
+            f"Workspace: {(question.workspace_id or '-')}\n"
             f"Status: {question.status}\n"
             f"Interpretation: {interpretation or '-'}\n"
             f"Relevant context: {context_line}\n"
@@ -484,6 +521,18 @@ class MultiAgentTUI(App[None]):
 
     def on_select_changed(self, event: Select.Changed) -> None:
         selected_value = self._resolve_select_value(event.value)
+        if event.select.id == "workspace-select" and selected_value:
+            storage = Storage(db_path=self.db_path)
+            try:
+                workspace = storage.set_active_workspace(selected_value)
+            except ValueError as exc:
+                self._status(f"Workspace switch failed: {exc}")
+                return
+            finally:
+                storage.close()
+            self._status(f"Active workspace set to '{workspace.name}'.")
+            self._refresh_dashboard()
+            return
         if event.select.id == "question-select" and selected_value:
             self._selected_question_id = selected_value
             self._schedule_question_render(selected_value)
@@ -493,6 +542,27 @@ class MultiAgentTUI(App[None]):
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "refresh":
+            self._refresh_dashboard()
+            return
+
+        if event.button.id == "workspace-create":
+            name = self.query_one("#workspace-name", Input).value.strip()
+            description = self.query_one("#workspace-description", Input).value.strip()
+            if not name:
+                self._status("Workspace name is required.")
+                return
+            storage = Storage(db_path=self.db_path)
+            try:
+                workspace = storage.create_workspace(name=name, description=description)
+                storage.set_active_workspace(workspace.id)
+            except Exception as exc:  # Keep UI flow simple and resilient.
+                self._status(f"Workspace create failed: {exc}")
+                return
+            finally:
+                storage.close()
+            self.query_one("#workspace-name", Input).value = ""
+            self.query_one("#workspace-description", Input).value = ""
+            self._status(f"Workspace '{workspace.name}' created and activated.")
             self._refresh_dashboard()
             return
 
@@ -512,6 +582,7 @@ class MultiAgentTUI(App[None]):
                 db_path=self.db_path,
                 question=question,
                 topic=topic,
+                workspace_id=self._active_workspace_id,
             )
         except Exception as exc:  # Keep UI flow simple and resilient.
             self._status(f"Panel failed: {exc}")
@@ -536,6 +607,7 @@ class MultiAgentTUI(App[None]):
         provider_available = bool(llm_status.get("provider_available")) if isinstance(llm_status, dict) else False
         output.write(f"Question: {panel_question.question_text}")
         output.write(f"Topic: {panel_question.topic}")
+        output.write(f"Workspace: {panel_question.workspace_id or '-'}")
         output.write(
             "Active decisions in scope: "
             + (

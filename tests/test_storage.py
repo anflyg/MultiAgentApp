@@ -284,6 +284,38 @@ def test_storage_reasoning_item_requires_decision_or_question_reference():
         storage.close()
 
 
+def test_storage_workspaces_active_state_and_question_scope():
+    storage = Storage(db_path=":memory:")
+    try:
+        default_workspace = storage.get_active_workspace()
+        assert default_workspace.name == "Default"
+
+        workspace = storage.create_workspace(
+            name="Finance",
+            description="Budget and forecast work",
+        )
+        selected = storage.set_active_workspace(workspace.id)
+        assert selected.id == workspace.id
+        assert storage.get_active_workspace().id == workspace.id
+
+        session = models.Session(name="Finance Session", workspace_id=workspace.id)
+        storage.add_session(session)
+        fetched_session = storage.get_session(session.id)
+        assert fetched_session is not None
+        assert fetched_session.workspace_id == workspace.id
+
+        question = models.ExecutiveQuestion(
+            question_text="Can we increase Q3 budget?",
+            topic="Budget",
+        )
+        storage.add_panel_question(question)
+        workspace_questions = storage.list_panel_questions(workspace_id=workspace.id)
+        assert len(workspace_questions) == 1
+        assert workspace_questions[0].workspace_id == workspace.id
+    finally:
+        storage.close()
+
+
 def test_storage_reasoning_items_migrate_memory_level_default(tmp_path):
     db_path = tmp_path / "legacy_reasoning_visibility.db"
     conn = sqlite3.connect(db_path)

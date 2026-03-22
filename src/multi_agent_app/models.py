@@ -12,6 +12,7 @@ class Session(BaseModel):
 
     id: str = Field(default_factory=lambda: str(uuid4()))
     name: str
+    workspace_id: str | None = None
     status: Literal["active", "completed", "failed"] = "active"
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
@@ -169,7 +170,17 @@ class ExecutiveQuestion(BaseModel):
     question_text: str
     topic: str
     session_id: str | None = None
+    workspace_id: str | None = None
     status: Literal["open", "answered", "closed"] = "open"
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+class Workspace(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str = Field(default_factory=lambda: str(uuid4()))
+    name: str
+    description: str = ""
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 

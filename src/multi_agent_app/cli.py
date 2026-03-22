@@ -378,7 +378,53 @@ def create_session(db_path: str, session_name: str) -> models.Session:
     storage = Storage(db_path=db_path)
     orchestrator = Orchestrator(storage, agents=_default_agents())
     try:
-        return orchestrator.create_session(session_name)
+        active_workspace = storage.get_active_workspace()
+        return orchestrator.create_session(session_name, workspace_id=active_workspace.id)
+    finally:
+        storage.close()
+
+
+def create_workspace(db_path: str, name: str, description: str = "") -> models.Workspace:
+    storage = Storage(db_path=db_path)
+    try:
+        workspace = storage.create_workspace(name=name, description=description)
+        storage.set_active_workspace(workspace.id)
+        return workspace
+    finally:
+        storage.close()
+
+
+def list_workspaces(db_path: str) -> tuple[list[models.Workspace], models.Workspace]:
+    storage = Storage(db_path=db_path)
+    try:
+        return storage.list_workspaces(), storage.get_active_workspace()
+    finally:
+        storage.close()
+
+
+def resolve_active_workspace(db_path: str) -> models.Workspace:
+    storage = Storage(db_path=db_path)
+    try:
+        return storage.get_active_workspace()
+    finally:
+        storage.close()
+
+
+def set_active_workspace(
+    db_path: str,
+    workspace_id: str | None = None,
+    workspace_name: str | None = None,
+) -> models.Workspace:
+    storage = Storage(db_path=db_path)
+    try:
+        if workspace_id:
+            return storage.set_active_workspace(workspace_id)
+        if workspace_name:
+            workspace = storage.get_workspace_by_name(workspace_name)
+            if workspace is None:
+                raise ValueError(f"Workspace '{workspace_name}' was not found")
+            return storage.set_active_workspace(workspace.id)
+        raise ValueError("Either workspace_id or workspace_name must be provided")
     finally:
         storage.close()
 
@@ -894,6 +940,7 @@ def ask_decision_panel(
     question: str,
     topic: str,
     session_id: str | None = None,
+    workspace_id: str | None = None,
     llm_provider: LLMProvider | None = None,
 ) -> tuple[
     models.ExecutiveQuestion,
@@ -913,14 +960,19 @@ def ask_decision_panel(
 
     storage = Storage(db_path=db_path)
     try:
+        resolved_workspace_id = workspace_id
         if session_id:
             session = storage.get_session(session_id)
             if session is None:
                 raise ValueError(f"Session '{session_id}' was not found")
+            resolved_workspace_id = session.workspace_id or resolved_workspace_id
+        if resolved_workspace_id is None:
+            resolved_workspace_id = storage.get_active_workspace().id
         panel_question = models.ExecutiveQuestion(
             question_text=normalized_question,
             topic=normalized_topic,
             session_id=session_id,
+            workspace_id=resolved_workspace_id,
         )
         storage.add_panel_question(panel_question)
         context = build_context_packet(storage, topic=normalized_topic, session_id=session_id)
@@ -1085,6 +1137,7 @@ def show_panel_question_case(db_path: str, question_id: str) -> dict:
 def list_panel_questions(
     db_path: str,
     session_id: str | None = None,
+    workspace_id: str | None = None,
     topic: str | None = None,
     limit: int = 20,
 ) -> List[models.ExecutiveQuestion]:
@@ -1094,7 +1147,15 @@ def list_panel_questions(
             session = storage.get_session(session_id)
             if session is None:
                 raise ValueError(f"Session '{session_id}' was not found")
-        return storage.list_panel_questions(session_id=session_id, topic=topic, limit=limit)
+            workspace_id = session.workspace_id
+        if workspace_id is None:
+            workspace_id = storage.get_active_workspace().id
+        return storage.list_panel_questions(
+            session_id=session_id,
+            workspace_id=workspace_id,
+            topic=topic,
+            limit=limit,
+        )
     finally:
         storage.close()
 
@@ -1115,7 +1176,8 @@ def run_example_flow(
     storage = Storage(db_path=db_path)
     orchestrator = Orchestrator(storage, agents=_default_agents())
     try:
-        session = orchestrator.create_session(session_name)
+        workspace = storage.get_active_workspace()
+        session = orchestrator.create_session(session_name, workspace_id=workspace.id)
         task = orchestrator.create_task(session.id, task_description)
         action = orchestrator.route_task(task, agent_name)
         saved_session = storage.get_session(session.id)
@@ -1204,6 +1266,22 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--agent", dest="agent_name", default="writer", help="Agent for demo flow.")
 
     subparsers = parser.add_subparsers(dest="command")
+
+    create_workspace_parser = subparsers.add_parser("workspace-create", help="Create a new workspace.")
+    create_workspace_parser.add_argument("--name", required=True, help="Workspace name.")
+    create_workspace_parser.add_argument(
+        "--description",
+        default="",
+        help="Optional workspace description.",
+    )
+
+    subparsers.add_parser("workspace-list", help="List available workspaces.")
+
+    use_workspace_parser = subparsers.add_parser("workspace-use", help="Set active workspace.")
+    use_workspace_parser.add_argument("--workspace-id", help="Workspace id.")
+    use_workspace_parser.add_argument("--name", help="Workspace name.")
+
+    subparsers.add_parser("workspace-status", help="Show active workspace.")
 
     create_session_parser = subparsers.add_parser("create-session", help="Create a new session.")
     create_session_parser.add_argument("--name", required=True, help="Name for the new session.")
@@ -1332,6 +1410,7 @@ def _build_parser() -> argparse.ArgumentParser:
     ask_panel_parser.add_argument("--question", required=True, help="Leadership panel question.")
     ask_panel_parser.add_argument("--topic", required=True, help="Decision topic.")
     ask_panel_parser.add_argument("--session-id", help="Optional session scope.")
+    ask_panel_parser.add_argument("--workspace-id", help="Optional workspace override.")
 
     show_panel_question_parser = subparsers.add_parser(
         "show-panel-question", help="Show a previously stored panel question and analysis."
@@ -1342,6 +1421,7 @@ def _build_parser() -> argparse.ArgumentParser:
         "list-panel-questions", help="List previously asked panel questions."
     )
     list_panel_questions_parser.add_argument("--session-id", help="Optional session id filter.")
+    list_panel_questions_parser.add_argument("--workspace-id", help="Optional workspace id filter.")
     list_panel_questions_parser.add_argument("--topic", help="Optional topic filter.")
     list_panel_questions_parser.add_argument("--limit", type=int, default=20, help="Maximum number of questions.")
 
@@ -1370,9 +1450,60 @@ def main() -> None:
     parser = _build_parser()
     args = parser.parse_args()
 
+    if args.command == "workspace-create":
+        try:
+            workspace = create_workspace(args.db_path, args.name, description=args.description)
+        except (ValueError, sqlite3.IntegrityError) as exc:
+            print(f"Workspace creation failed: {exc}")
+            raise SystemExit(1) from exc
+        print(f"Created workspace: {workspace.id}")
+        print(f"Name: {workspace.name}")
+        print(f"Description: {workspace.description or '-'}")
+        print("Workspace is now active.")
+        return
+
+    if args.command == "workspace-list":
+        workspaces, active_workspace = list_workspaces(args.db_path)
+        print(f"Workspaces: {len(workspaces)}")
+        for workspace in workspaces:
+            marker = "*" if workspace.id == active_workspace.id else "-"
+            print(
+                f"{marker} {workspace.id} | {workspace.name} | "
+                f"{workspace.description or '-'}"
+            )
+        return
+
+    if args.command == "workspace-use":
+        if not args.workspace_id and not args.name:
+            print("Workspace switch failed: provide --workspace-id or --name")
+            raise SystemExit(1)
+        try:
+            workspace = set_active_workspace(
+                args.db_path,
+                workspace_id=args.workspace_id,
+                workspace_name=args.name,
+            )
+        except ValueError as exc:
+            print(f"Workspace switch failed: {exc}")
+            raise SystemExit(1) from exc
+        print(f"Active workspace: {workspace.name} ({workspace.id})")
+        return
+
+    active_workspace = resolve_active_workspace(args.db_path)
+    print(
+        f"Active workspace: {active_workspace.name} ({active_workspace.id}) "
+        f"| {active_workspace.description or 'no description'}"
+    )
+
+    if args.command == "workspace-status":
+        return
+
     if args.command == "create-session":
         session = create_session(args.db_path, args.name)
-        print(f"Created session: {session.id} ({session.name}) status={session.status}")
+        print(
+            f"Created session: {session.id} ({session.name}) "
+            f"status={session.status} workspace={session.workspace_id}"
+        )
         return
 
     if args.command == "add-task":
@@ -1668,6 +1799,7 @@ def main() -> None:
                 question=args.question,
                 topic=args.topic,
                 session_id=args.session_id,
+                workspace_id=args.workspace_id,
             )
         except ValueError as exc:
             print(f"Decision panel failed: {exc}")
@@ -1704,6 +1836,7 @@ def main() -> None:
         provider_available = bool(llm_status.get("provider_available")) if isinstance(llm_status, dict) else False
         print(f"Question: {panel_question.question_text}")
         print(f"Topic: {panel_question.topic}")
+        print(f"Workspace: {panel_question.workspace_id or '-'}")
 
         print("Active decisions in scope:")
         if context["active_decisions"]:
@@ -1851,6 +1984,7 @@ def main() -> None:
 
         print(f"Question: {question.question_text}")
         print(f"Topic: {question.topic}")
+        print(f"Workspace: {question.workspace_id or '-'}")
         print(f"Status: {question.status}")
         print(
             "Active decision references: "
@@ -1998,6 +2132,7 @@ def main() -> None:
             questions = list_panel_questions(
                 db_path=args.db_path,
                 session_id=args.session_id,
+                workspace_id=args.workspace_id,
                 topic=args.topic,
                 limit=args.limit,
             )
@@ -2008,7 +2143,8 @@ def main() -> None:
         for question in questions:
             print(
                 f"- {question.id} [{question.status}] "
-                f"created_at={question.created_at.isoformat()} topic={question.topic}"
+                f"created_at={question.created_at.isoformat()} topic={question.topic} "
+                f"workspace={question.workspace_id or '-'}"
             )
             print(f"  {_truncate_question(question.question_text)}")
         return

@@ -21,8 +21,8 @@ class Orchestrator:
     def register_agent(self, name: str, agent: BaseAgent) -> None:
         self.agents[name] = agent
 
-    def create_session(self, name: str) -> models.Session:
-        session = models.Session(name=name)
+    def create_session(self, name: str, workspace_id: str | None = None) -> models.Session:
+        session = models.Session(name=name, workspace_id=workspace_id)
         self.storage.add_session(session)
         self.storage.add_session_event(
             models.SessionEvent(

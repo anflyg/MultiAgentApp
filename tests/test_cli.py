@@ -125,6 +125,58 @@ def test_cli_list_tasks_command_prints_entries(tmp_path, capsys, monkeypatch):
     assert "Two task" in captured
 
 
+def test_cli_workspace_create_use_and_status(tmp_path, capsys, monkeypatch):
+    db_path = tmp_path / "workspace_cli.db"
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "main.py",
+            "--db-path",
+            str(db_path),
+            "workspace-create",
+            "--name",
+            "Finance",
+            "--description",
+            "Budget planning",
+        ],
+    )
+    main()
+    create_output = capsys.readouterr().out
+    assert "Created workspace:" in create_output
+    assert "Finance" in create_output
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "main.py",
+            "--db-path",
+            str(db_path),
+            "workspace-status",
+        ],
+    )
+    main()
+    status_output = capsys.readouterr().out
+    assert "Active workspace: Finance" in status_output
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "main.py",
+            "--db-path",
+            str(db_path),
+            "workspace-list",
+        ],
+    )
+    main()
+    list_output = capsys.readouterr().out
+    assert "Workspaces:" in list_output
+    assert "Finance" in list_output
+
+
 def test_cli_run_task_command(tmp_path, capsys, monkeypatch):
     db_path = tmp_path / "run_task_cli.db"
     session = create_session(str(db_path), "Run Task Session")
