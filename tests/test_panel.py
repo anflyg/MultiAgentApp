@@ -500,27 +500,23 @@ def test_ask_decision_panel_output_includes_required_sections(tmp_path, capsys, 
     )
     main()
     output = capsys.readouterr().out
+    assert "Panel response" in output
     assert "Question:" in output
     assert "Topic:" in output
-    assert "Active decisions in scope:" in output
-    assert "Previous related decisions:" in output
-    assert "Pending decision candidates:" in output
-    assert "Pending decision suggestions:" in output
+    assert "Context snapshot:" in output
+    assert "Active decision anchors:" in output
     assert "Assessment:" in output
     assert "Decision summary:" in output
-    assert "Role generation mode:" in output
-    assert "Active advisor roles:" in output
-    assert "Decision context at a glance:" in output
+    assert "Generation mode:" in output
     assert "Key concerns:" in output
-    assert "Strateg [inactive]: not activated for this question" in output
-    assert "Analyst [inactive]: not activated for this question" in output
+    assert "Inactive advisors for this question:" in output
     assert "Operator [heuristic fallback]:" in output
     assert "Governance [heuristic fallback]:" in output
-    assert "Combined recommendation:" in output
+    assert "Recommendation:" in output
     assert "New decision likely?:" in output
-    assert "Recommended next step:" in output
+    assert "Action now:" in output
     assert "Next steps:" in output
-    assert "show-panel-question --question-id" in output
+    assert "1. Review full case:" in output
 
 
 def test_show_panel_question_command_loads_saved_case(tmp_path, capsys, monkeypatch):
@@ -547,19 +543,19 @@ def test_show_panel_question_command_loads_saved_case(tmp_path, capsys, monkeypa
     )
     main()
     output = capsys.readouterr().out
+    assert "Saved panel case" in output
     assert "Question:" in output
     assert "Active decision references:" in output
     assert "Assessment:" in output
     assert "Decision summary:" in output
-    assert "Role generation mode:" in output
-    assert "Active advisor roles:" in output
+    assert "Generation mode:" in output
     assert "Decision context at a glance:" in output
-    assert "Combined recommendation:" in output
-    assert "Strateg [inactive]: not activated for this question" in output
+    assert "Recommendation:" in output
+    assert "Inactive advisors for this question:" in output
     assert "Key reasoning notes:" in output
     assert "Reasoning summary:" in output
     assert "Next steps:" in output
-    assert "ask-decision-panel --topic Ops --question" in output
+    assert "1. Ask follow-up:" in output
 
 
 def test_panel_cli_outputs_manual_candidate_draft_for_new_decision_case(tmp_path, capsys, monkeypatch):

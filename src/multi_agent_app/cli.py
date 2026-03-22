@@ -147,6 +147,37 @@ def _print_provider_key_status(
     )
 
 
+def _print_panel_context_summary(context: dict) -> None:
+    print("Context snapshot: " + _context_signal_line(context))
+    if context["active_decisions"]:
+        print("Active decision anchors:")
+        for decision in context["active_decisions"][:3]:
+            print(f"- {decision.title} ({decision.id[:8]})")
+    else:
+        print("Active decision anchors: none")
+
+
+def _print_advisor_responses_compact(
+    *,
+    by_agent: dict[str, str],
+    role_sources: dict[str, str],
+    active_roles: set[str],
+    inactive_roles: list[str],
+) -> None:
+    print("Advisor perspectives:")
+    for role_name in ("strateg", "analyst", "operator", "governance"):
+        if role_name not in active_roles:
+            continue
+        _print_advisor_response_line(
+            role_name=role_name,
+            by_agent=by_agent,
+            role_sources=role_sources,
+            active_roles=active_roles,
+        )
+    if inactive_roles:
+        print("Inactive advisors for this question: " + ", ".join(inactive_roles))
+
+
 def _doctor_readiness_label(*, provider_enabled: bool, provider_available: bool) -> str:
     if provider_enabled and not provider_available:
         return "provider configured but key missing"
@@ -2165,40 +2196,11 @@ def main() -> None:
         provider_model = llm_status.get("model") if isinstance(llm_status, dict) else None
         provider_enabled = bool(llm_status.get("provider_enabled")) if isinstance(llm_status, dict) else False
         provider_available = bool(llm_status.get("provider_available")) if isinstance(llm_status, dict) else False
+        print("Panel response")
         print(f"Question: {panel_question.question_text}")
         print(f"Topic: {panel_question.topic}")
         print(f"Workspace: {panel_question.workspace_id or '-'}")
-
-        print("Active decisions in scope:")
-        if context["active_decisions"]:
-            for decision in context["active_decisions"]:
-                print(f"- {decision.id} title={decision.title}")
-        else:
-            print("- none")
-
-        print("Previous related decisions:")
-        if context["historical_decisions"]:
-            for decision in context["historical_decisions"]:
-                print(f"- {decision.id} title={decision.title}")
-        else:
-            print("- none")
-
-        print("Pending decision candidates:")
-        if context["open_candidates"]:
-            for candidate in context["open_candidates"]:
-                print(f"- {candidate.id} title={candidate.title}")
-        else:
-            print("- none")
-
-        print("Pending decision suggestions:")
-        if context["open_suggestions"]:
-            for suggestion in context["open_suggestions"]:
-                print(
-                    f"- {suggestion.id} [{suggestion.suggestion_type}] "
-                    f"{suggestion.source_decision_id} -> {suggestion.target_decision_id}"
-                )
-        else:
-            print("- none")
+        _print_panel_context_summary(context)
 
         print(f"Assessment: {alignment_label(assessment.alignment)} ({assessment.reason})")
         outcome = build_panel_outcome(context, assessment)
@@ -2211,7 +2213,7 @@ def main() -> None:
             f"New decision likelihood: {likelihood_label(likely_new_decision)}"
         )
         print(
-            "Role generation mode: "
+            "Generation mode: "
             + role_generation_mode_label(
                 provider=provider_name,
                 model=provider_model,
@@ -2227,18 +2229,11 @@ def main() -> None:
         )
         if role_provider_config:
             print(f"Role provider map: {summarize_role_provider_map(role_provider_config)}")
-        print(
-            "Active advisor roles: "
-            + (", ".join(sorted(active_roles)) if active_roles else "none")
-            + " | Inactive: "
-            + (", ".join(inactive_roles) if inactive_roles else "none")
-        )
         if fallback_reasons:
             print(
                 "Fallback to heuristic (by role): "
                 + summarize_fallback_notes(fallback_reasons)
             )
-        print(f"Decision context at a glance: {_context_signal_line(context)}")
         draft = _build_decision_candidate_draft(
             question_text=panel_question.question_text,
             topic=panel_question.topic,
@@ -2257,45 +2252,26 @@ def main() -> None:
                 print(f"- {point}")
         else:
             print("- none")
-
-        _print_advisor_response_line(
-            role_name="strateg",
+        _print_advisor_responses_compact(
             by_agent=by_agent,
             role_sources=role_sources,
             active_roles=active_roles,
+            inactive_roles=inactive_roles,
         )
-        _print_advisor_response_line(
-            role_name="analyst",
-            by_agent=by_agent,
-            role_sources=role_sources,
-            active_roles=active_roles,
-        )
-        _print_advisor_response_line(
-            role_name="operator",
-            by_agent=by_agent,
-            role_sources=role_sources,
-            active_roles=active_roles,
-        )
-        _print_advisor_response_line(
-            role_name="governance",
-            by_agent=by_agent,
-            role_sources=role_sources,
-            active_roles=active_roles,
-        )
-        print(f"Combined recommendation: {combined}")
+        print(f"Recommendation: {combined}")
         print(f"New decision likely?: {likelihood_label(likely_new_decision)}")
-        print(f"Recommended next step: {next_step}")
+        print(f"Action now: {next_step}")
         print(f"Saved question id: {panel_question.id}")
         print("Next steps:")
         print(
-            f"- python src/main.py --db-path {args.db_path} "
+            f"1. Review full case: python src/main.py --db-path {args.db_path} "
             f"show-panel-question --question-id {panel_question.id}"
         )
         print(
-            f"- python src/main.py --db-path {args.db_path} "
-            f"list-panel-questions --topic {panel_question.topic}"
+            f"2. Ask follow-up: python src/main.py --db-path {args.db_path} "
+            f"ask-decision-panel --topic {panel_question.topic} --question \"<din nästa fråga>\""
         )
-        print(f"- python src/main.py --db-path {args.db_path} tui")
+        print(f"3. Open dashboard: python src/main.py --db-path {args.db_path} tui")
         return
 
     if args.command == "show-panel-question":
@@ -2322,6 +2298,7 @@ def main() -> None:
         provider_enabled = False
         provider_available = False
 
+        print("Saved panel case")
         print(f"Question: {question.question_text}")
         print(f"Topic: {question.topic}")
         print(f"Workspace: {question.workspace_id or '-'}")
@@ -2365,7 +2342,7 @@ def main() -> None:
                 f"New decision likelihood: {likelihood_label(analysis.likely_requires_new_decision)}"
             )
             print(
-                "Role generation mode: "
+                "Generation mode: "
                 + role_generation_mode_label(
                     provider=provider_name,
                     model=provider_model,
@@ -2381,12 +2358,6 @@ def main() -> None:
             )
             if role_provider_config:
                 print(f"Role provider map: {summarize_role_provider_map(role_provider_config)}")
-            print(
-                "Active advisor roles: "
-                + (", ".join(sorted(active_roles)) if active_roles else "none")
-                + " | Inactive: "
-                + (", ".join(inactive_roles) if inactive_roles else "none")
-            )
             if fallback_reasons:
                 print(
                     "Fallback to heuristic (by role): "
@@ -2431,38 +2402,20 @@ def main() -> None:
                 "Key concerns: "
                 + (" | ".join(analysis.challenge_points) if analysis.challenge_points else "none")
             )
-            print(f"Combined recommendation: {analysis.combined_recommendation}")
+            print(f"Recommendation: {analysis.combined_recommendation}")
             print(f"New decision likely?: {likelihood_label(analysis.likely_requires_new_decision)}")
-            print(f"Recommended next step: {analysis.suggested_next_step}")
+            print(f"Action now: {analysis.suggested_next_step}")
         else:
             print("Assessment: none")
             print("Key concerns: none")
-            print("Combined recommendation: none")
+            print("Recommendation: none")
             print("New decision likely?: Probably")
-            print("Recommended next step: none")
-        _print_advisor_response_line(
-            role_name="strateg",
+            print("Action now: none")
+        _print_advisor_responses_compact(
             by_agent=by_agent,
             role_sources=role_sources,
             active_roles=active_roles,
-        )
-        _print_advisor_response_line(
-            role_name="analyst",
-            by_agent=by_agent,
-            role_sources=role_sources,
-            active_roles=active_roles,
-        )
-        _print_advisor_response_line(
-            role_name="operator",
-            by_agent=by_agent,
-            role_sources=role_sources,
-            active_roles=active_roles,
-        )
-        _print_advisor_response_line(
-            role_name="governance",
-            by_agent=by_agent,
-            role_sources=role_sources,
-            active_roles=active_roles,
+            inactive_roles=inactive_roles,
         )
         print(f"Key reasoning notes: {len(reasoning_items)}")
         print(f"Reasoning summary: {_reasoning_signal_line(reasoning_items)}")
@@ -2470,10 +2423,10 @@ def main() -> None:
             _print_reasoning_item(item)
         print("Next steps:")
         print(
-            f"- python src/main.py --db-path {args.db_path} "
+            f"1. Ask follow-up: python src/main.py --db-path {args.db_path} "
             f"ask-decision-panel --topic {question.topic} --question \"<din nästa fråga>\""
         )
-        print(f"- python src/main.py --db-path {args.db_path} tui")
+        print(f"2. Open dashboard: python src/main.py --db-path {args.db_path} tui")
         return
 
     if args.command == "list-panel-questions":
