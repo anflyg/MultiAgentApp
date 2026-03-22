@@ -356,6 +356,47 @@ class Storage:
             return None
         return self._workspace_from_row(row)
 
+    def update_workspace(
+        self,
+        workspace_id: str,
+        *,
+        name: str | None = None,
+        description: str | None = None,
+        clear_description: bool = False,
+    ) -> models.Workspace:
+        workspace = self.get_workspace(workspace_id)
+        if workspace is None:
+            raise ValueError(f"Workspace '{workspace_id}' was not found")
+
+        updates: list[str] = []
+        params: list[object] = []
+        if name is not None:
+            normalized_name = " ".join(name.strip().split())
+            if not normalized_name:
+                raise ValueError("Workspace name cannot be empty")
+            updates.append("name = ?")
+            params.append(normalized_name)
+        if description is not None:
+            updates.append("description = ?")
+            params.append(description.strip())
+        elif clear_description:
+            updates.append("description = ?")
+            params.append("")
+
+        if not updates:
+            raise ValueError("Provide at least one field to update")
+
+        params.append(workspace_id)
+        self._conn.execute(
+            f"UPDATE workspaces SET {', '.join(updates)} WHERE id = ?",
+            tuple(params),
+        )
+        self._conn.commit()
+        updated = self.get_workspace(workspace_id)
+        if updated is None:
+            raise ValueError(f"Workspace '{workspace_id}' was not found after update")
+        return updated
+
     def get_active_workspace(self) -> models.Workspace:
         active_workspace_id = self._read_active_workspace()
         workspace = (

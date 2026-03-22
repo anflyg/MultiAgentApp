@@ -396,6 +396,25 @@ def test_storage_workspace_scoped_lists_for_dashboard_and_panel():
         storage.close()
 
 
+def test_storage_can_rename_workspace_and_keep_active_workspace_id():
+    storage = Storage(db_path=":memory:")
+    try:
+        workspace = storage.create_workspace(name="Operations", description="Ops desc")
+        storage.set_active_workspace(workspace.id)
+        updated = storage.update_workspace(
+            workspace.id,
+            name="Executive Ops",
+            description="Exec-level operations",
+        )
+        assert updated.id == workspace.id
+        assert updated.name == "Executive Ops"
+        assert updated.description == "Exec-level operations"
+        assert storage.get_active_workspace().id == workspace.id
+        assert storage.get_active_workspace().name == "Executive Ops"
+    finally:
+        storage.close()
+
+
 def test_storage_reasoning_items_migrate_memory_level_default(tmp_path):
     db_path = tmp_path / "legacy_reasoning_visibility.db"
     conn = sqlite3.connect(db_path)

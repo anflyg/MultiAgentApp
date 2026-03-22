@@ -177,6 +177,66 @@ def test_cli_workspace_create_use_and_status(tmp_path, capsys, monkeypatch):
     assert "Finance" in list_output
 
 
+def test_cli_workspace_update_renames_and_updates_description(tmp_path, capsys, monkeypatch):
+    db_path = tmp_path / "workspace_update_cli.db"
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "main.py",
+            "--db-path",
+            str(db_path),
+            "workspace-create",
+            "--name",
+            "Sales",
+            "--description",
+            "Initial sales scope",
+        ],
+    )
+    main()
+    capsys.readouterr()
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "main.py",
+            "--db-path",
+            str(db_path),
+            "workspace-update",
+            "--name",
+            "Sales",
+            "--new-name",
+            "Revenue",
+            "--description",
+            "Revenue planning and growth",
+        ],
+    )
+    main()
+    update_output = capsys.readouterr().out
+    assert "Updated workspace:" in update_output
+    assert "Name: Revenue" in update_output
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["main.py", "--db-path", str(db_path), "workspace-status"],
+    )
+    main()
+    status_output = capsys.readouterr().out
+    assert "Active workspace: Revenue" in status_output
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["main.py", "--db-path", str(db_path), "workspace-list"],
+    )
+    main()
+    list_output = capsys.readouterr().out
+    assert "Revenue planning and growth" in list_output
+
+
 def test_cli_config_init_and_show(tmp_path, capsys, monkeypatch):
     db_path = tmp_path / "from_config.db"
     config_path = tmp_path / "app_config.json"

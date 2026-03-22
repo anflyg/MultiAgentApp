@@ -424,6 +424,34 @@ def create_workspace(db_path: str, name: str, description: str = "") -> models.W
         storage.close()
 
 
+def update_workspace(
+    db_path: str,
+    *,
+    workspace_id: str | None = None,
+    workspace_name: str | None = None,
+    new_name: str | None = None,
+    description: str | None = None,
+    clear_description: bool = False,
+) -> models.Workspace:
+    storage = Storage(db_path=db_path)
+    try:
+        target = None
+        if workspace_id:
+            target = storage.get_workspace(workspace_id)
+        elif workspace_name:
+            target = storage.get_workspace_by_name(workspace_name)
+        if target is None:
+            raise ValueError("Workspace was not found")
+        return storage.update_workspace(
+            target.id,
+            name=new_name,
+            description=description,
+            clear_description=clear_description,
+        )
+    finally:
+        storage.close()
+
+
 def list_workspaces(db_path: str) -> tuple[list[models.Workspace], models.Workspace]:
     storage = Storage(db_path=db_path)
     try:
@@ -1370,6 +1398,20 @@ def _build_parser(config: AppConfig, config_path: str | None = None) -> argparse
     use_workspace_parser.add_argument("--workspace-id", help="Workspace id.")
     use_workspace_parser.add_argument("--name", help="Workspace name.")
 
+    update_workspace_parser = subparsers.add_parser(
+        "workspace-update",
+        help="Update workspace name and/or description.",
+    )
+    update_workspace_parser.add_argument("--workspace-id", help="Workspace id.")
+    update_workspace_parser.add_argument("--name", help="Current workspace name.")
+    update_workspace_parser.add_argument("--new-name", help="New workspace name.")
+    update_workspace_parser.add_argument("--description", help="New workspace description.")
+    update_workspace_parser.add_argument(
+        "--clear-description",
+        action="store_true",
+        help="Clear workspace description.",
+    )
+
     subparsers.add_parser("workspace-status", help="Show active workspace.")
 
     create_session_parser = subparsers.add_parser("create-session", help="Create a new session.")
@@ -1722,6 +1764,30 @@ def main() -> None:
             print(f"Workspace switch failed: {exc}")
             raise SystemExit(1) from exc
         print(f"Active workspace: {workspace.name} ({workspace.id})")
+        return
+
+    if args.command == "workspace-update":
+        if not args.workspace_id and not args.name:
+            print("Workspace update failed: provide --workspace-id or --name")
+            raise SystemExit(1)
+        if not args.new_name and args.description is None and not args.clear_description:
+            print("Workspace update failed: provide --new-name and/or --description")
+            raise SystemExit(1)
+        try:
+            workspace = update_workspace(
+                args.db_path,
+                workspace_id=args.workspace_id,
+                workspace_name=args.name,
+                new_name=args.new_name,
+                description=args.description,
+                clear_description=args.clear_description,
+            )
+        except (ValueError, sqlite3.IntegrityError) as exc:
+            print(f"Workspace update failed: {exc}")
+            raise SystemExit(1) from exc
+        print(f"Updated workspace: {workspace.id}")
+        print(f"Name: {workspace.name}")
+        print(f"Description: {workspace.description or '-'}")
         return
 
     active_workspace = resolve_active_workspace(args.db_path)
