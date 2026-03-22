@@ -23,6 +23,15 @@ def test_write_and_load_app_config_roundtrip(tmp_path):
         default_session_name="Session X",
         default_task_description="Task X",
         default_agent_name="planner",
+        llm_provider="gemini",
+        openai_model="gpt-4o-mini",
+        openai_api_key="openai-secret",
+        gemini_model="gemini-2.0-flash",
+        gemini_api_key="gemini-secret",
+        role_llm_overrides={
+            "strateg": {"provider": "gemini", "model": "gemini-2.0-flash"},
+            "operator": {"provider": "heuristic", "model": None},
+        },
     )
     write_app_config(expected, config_path=str(config_path))
     loaded, path = load_app_config(str(config_path))

@@ -12,10 +12,13 @@ from .config import AppConfig, ensure_app_config, load_app_config, write_app_con
 from .llm import (
     LLMProvider,
     apply_role_llm_overrides,
+    mask_api_key,
     provider_key_status_label,
     provider_enabled_from_env,
     provider_from_env,
+    resolve_api_key,
     resolve_role_provider_and_model,
+    resolved_api_key_source,
     role_generation_mode_label,
     summarize_fallback_notes,
     summarize_role_provider_map,
@@ -1055,6 +1058,7 @@ def ask_decision_panel(
     session_id: str | None = None,
     workspace_id: str | None = None,
     llm_provider: LLMProvider | None = None,
+    app_config: AppConfig | None = None,
 ) -> tuple[
     models.ExecutiveQuestion,
     dict,
@@ -1113,10 +1117,11 @@ def ask_decision_panel(
             assessment=assessment,
             roles=roles,
         )
-        resolved_provider = llm_provider if llm_provider is not None else provider_from_env()
+        resolved_provider = llm_provider if llm_provider is not None else provider_from_env(app_config)
         role_analysis_outputs, role_sources, fallback_reasons, role_provider_config, role_provider_available = (
             apply_role_llm_overrides(
                 provider=resolved_provider if llm_provider is not None else None,
+                app_config=app_config,
                 roles=roles,
                 question=normalized_question,
                 context=context,
@@ -1125,7 +1130,7 @@ def ask_decision_panel(
             )
         )
         provider_enabled = (
-            provider_enabled_from_env()
+            provider_enabled_from_env(app_config)
             if llm_provider is None
             else resolved_provider.name != "heuristic"
         )
@@ -1438,6 +1443,7 @@ def alpha_demo_setup(
     session_name: str = "Alpha Demo Session",
     topic: str = "Expansion",
     question: str = "Ska vi öppna Danmark ändå trots att Norge är försenat?",
+    app_config: AppConfig | None = None,
 ) -> dict[str, object]:
     session = create_session(db_path=db_path, session_name=session_name)
     active_decision = create_decision(
@@ -1481,6 +1487,7 @@ def alpha_demo_setup(
         question=question,
         topic=topic,
         session_id=session.id,
+        app_config=app_config,
     )
     return {
         "session": session,
@@ -1508,7 +1515,7 @@ def _get_or_create_workspace(
     return storage.create_workspace(name=name, description=description)
 
 
-def vd_scenario_setup(db_path: str) -> dict[str, object]:
+def vd_scenario_setup(db_path: str, app_config: AppConfig | None = None) -> dict[str, object]:
     scenario = [
         {
             "workspace": "Strategi / Expansion",
@@ -1616,6 +1623,7 @@ def vd_scenario_setup(db_path: str) -> dict[str, object]:
                     topic=item["topic"],
                     session_id=session.id,
                     workspace_id=workspace.id,
+                    app_config=app_config,
                 )
                 questions_created.append(panel_question)
                 created_question_ids.append(panel_question.id)
@@ -1974,11 +1982,24 @@ def main() -> None:
         print(f"default_session_name: {app_config.default_session_name}")
         print(f"default_task_description: {app_config.default_task_description}")
         print(f"default_agent_name: {app_config.default_agent_name}")
+        print(f"llm_provider: {app_config.llm_provider}")
+        print(f"openai_model: {app_config.openai_model}")
+        print(f"gemini_model: {app_config.gemini_model}")
+        print(f"openai_api_key: {mask_api_key(app_config.openai_api_key)}")
+        print(f"gemini_api_key: {mask_api_key(app_config.gemini_api_key)}")
+        print(f"role_llm_overrides: {summarize_role_provider_map(app_config.role_llm_overrides)}")
         return
 
     if args.command == "config-show":
-        provider = provider_from_env()
-        provider_enabled = provider_enabled_from_env()
+        role_provider_config: dict[str, dict[str, str | None]] = {}
+        for role_name in ("strateg", "analyst", "operator", "governance"):
+            provider_name, model = resolve_role_provider_and_model(role_name, app_config=app_config)
+            role_provider_config[role_name] = {
+                "provider": provider_name,
+                "model": model,
+            }
+        provider = provider_from_env(app_config)
+        provider_enabled = provider_enabled_from_env(app_config)
         provider_available = provider.is_available()
         print(f"Config path: {resolved_config_path}")
         print(f"Config file exists: {'yes' if resolved_config_path.exists() else 'no'}")
@@ -1987,6 +2008,21 @@ def main() -> None:
         print(f"default_session_name: {app_config.default_session_name}")
         print(f"default_task_description: {app_config.default_task_description}")
         print(f"default_agent_name: {app_config.default_agent_name}")
+        print("LLM settings:")
+        print(f"llm_provider: {app_config.llm_provider}")
+        print(f"openai_model: {app_config.openai_model}")
+        print(f"gemini_model: {app_config.gemini_model}")
+        print(
+            "openai_api_key: "
+            f"{mask_api_key(resolve_api_key('openai', app_config))} "
+            f"(source={resolved_api_key_source('openai', app_config)})"
+        )
+        print(
+            "gemini_api_key: "
+            f"{mask_api_key(resolve_api_key('gemini', app_config))} "
+            f"(source={resolved_api_key_source('gemini', app_config)})"
+        )
+        print(f"Role provider map: {summarize_role_provider_map(role_provider_config)}")
         print("Provider status:")
         print(
             "Role generation mode: "
@@ -2001,7 +2037,7 @@ def main() -> None:
             provider_name=provider.name,
             provider_enabled=provider_enabled,
             provider_available=provider_available,
-            role_provider_config={},
+            role_provider_config=role_provider_config,
         )
         print("Internal state remains in database (example: active workspace).")
         return
@@ -2009,7 +2045,7 @@ def main() -> None:
     if args.command in {"doctor", "app-status"}:
         role_provider_config: dict[str, dict[str, str | None]] = {}
         for role_name in ("strateg", "analyst", "operator", "governance"):
-            provider_name, model = resolve_role_provider_and_model(role_name)
+            provider_name, model = resolve_role_provider_and_model(role_name, app_config=app_config)
             role_provider_config[role_name] = {
                 "provider": provider_name,
                 "model": model,
@@ -2040,8 +2076,8 @@ def main() -> None:
         )
         provider_enabled = bool(configured_providers)
         provider_available = any(
-            (provider == "openai" and bool(os.getenv("OPENAI_API_KEY")))
-            or (provider == "gemini" and bool(os.getenv("GEMINI_API_KEY")))
+            (provider == "openai" and bool(resolve_api_key("openai", app_config)))
+            or (provider == "gemini" and bool(resolve_api_key("gemini", app_config)))
             for provider in configured_providers
         )
         try:
@@ -2073,6 +2109,16 @@ def main() -> None:
                 available=provider_available,
                 role_provider_config=role_provider_config,
             )
+        )
+        print(
+            "OpenAI key: "
+            f"{mask_api_key(resolve_api_key('openai', app_config))} "
+            f"(source={resolved_api_key_source('openai', app_config)})"
+        )
+        print(
+            "Gemini key: "
+            f"{mask_api_key(resolve_api_key('gemini', app_config))} "
+            f"(source={resolved_api_key_source('gemini', app_config)})"
         )
         print(f"Role provider map: {summarize_role_provider_map(role_provider_config)}")
         print(
@@ -2490,6 +2536,7 @@ def main() -> None:
                 topic=args.topic,
                 session_id=args.session_id,
                 workspace_id=args.workspace_id,
+                app_config=app_config,
             )
         except ValueError as exc:
             print(f"Pilot ask failed: {exc}")
@@ -2688,6 +2735,7 @@ def main() -> None:
                 topic=args.topic,
                 session_id=args.session_id,
                 workspace_id=args.workspace_id,
+                app_config=app_config,
             )
         except ValueError as exc:
             print(f"Decision panel failed: {exc}")
@@ -2983,6 +3031,7 @@ def main() -> None:
             session_name=args.session_name,
             topic=args.topic,
             question=args.question,
+            app_config=app_config,
         )
         session = result["session"]
         panel_question = result["panel_question"]
@@ -3005,7 +3054,7 @@ def main() -> None:
         return
 
     if args.command == "vd-scenario-setup":
-        result = vd_scenario_setup(db_path=args.db_path)
+        result = vd_scenario_setup(db_path=args.db_path, app_config=app_config)
         workspaces = result["workspaces"]
         print("VD scenario is ready.")
         print(f"Workspaces seeded: {len(workspaces)}")
@@ -3039,7 +3088,7 @@ def main() -> None:
     if args.command == "tui":
         from .tui import run_tui
 
-        run_tui(db_path=args.db_path)
+        run_tui(db_path=args.db_path, app_config=app_config)
         return
 
     try:

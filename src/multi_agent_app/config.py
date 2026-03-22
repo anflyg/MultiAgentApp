@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
 DEFAULT_CONFIG_FILENAME = ".multi_agent_app_config.json"
@@ -15,6 +15,30 @@ class AppConfig:
     default_session_name: str = "Demo Session"
     default_task_description: str = "Write a welcome message"
     default_agent_name: str = "writer"
+    llm_provider: str = "heuristic"
+    openai_model: str = "gpt-4o-mini"
+    openai_api_key: str = ""
+    gemini_model: str = "gemini-2.0-flash"
+    gemini_api_key: str = ""
+    role_llm_overrides: dict[str, dict[str, str | None]] = field(default_factory=dict)
+
+
+def _coerce_role_llm_overrides(raw: object) -> dict[str, dict[str, str | None]]:
+    if not isinstance(raw, dict):
+        return {}
+    cleaned: dict[str, dict[str, str | None]] = {}
+    for role_name, value in raw.items():
+        if not isinstance(role_name, str):
+            continue
+        if not isinstance(value, dict):
+            continue
+        provider = value.get("provider")
+        model = value.get("model")
+        cleaned[role_name] = {
+            "provider": str(provider).strip() if provider is not None else None,
+            "model": str(model).strip() if model is not None else None,
+        }
+    return cleaned
 
 
 def resolve_config_path(config_path: str | None = None) -> Path:
@@ -31,6 +55,14 @@ def _coerce_config(data: dict[str, object]) -> AppConfig:
             data.get("default_task_description", AppConfig.default_task_description)
         ),
         default_agent_name=str(data.get("default_agent_name", AppConfig.default_agent_name)),
+        llm_provider=str(data.get("llm_provider", AppConfig.llm_provider)),
+        openai_model=str(data.get("openai_model", AppConfig.openai_model)),
+        openai_api_key=str(data.get("openai_api_key", AppConfig.openai_api_key)),
+        gemini_model=str(data.get("gemini_model", AppConfig.gemini_model)),
+        gemini_api_key=str(data.get("gemini_api_key", AppConfig.gemini_api_key)),
+        role_llm_overrides=_coerce_role_llm_overrides(
+            data.get("role_llm_overrides", {})
+        ),
     )
 
 

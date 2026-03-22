@@ -6,6 +6,7 @@ from typing import Mapping, Protocol
 from urllib import error, request
 
 from . import models
+from .config import AppConfig
 
 try:
     import requests
@@ -466,36 +467,134 @@ def _role_env_suffix(role_name: str) -> str:
     return role_name.strip().upper()
 
 
-def resolve_role_provider_and_model(role_name: str) -> tuple[str, str | None]:
+def _config_override(app_config: AppConfig | None, role_name: str) -> dict[str, str | None]:
+    if app_config is None:
+        return {}
+    raw = app_config.role_llm_overrides.get(role_name, {})
+    if not isinstance(raw, dict):
+        return {}
+    provider = raw.get("provider")
+    model = raw.get("model")
+    return {
+        "provider": str(provider).strip() if provider is not None else None,
+        "model": str(model).strip() if model is not None else None,
+    }
+
+
+def _config_or_empty(value: str | None) -> str:
+    return (value or "").strip()
+
+
+def _resolve_global_provider(app_config: AppConfig | None = None) -> str:
+    env_value = os.getenv("MULTI_AGENT_APP_LLM_PROVIDER")
+    if env_value is not None:
+        return _normalize_provider(env_value)
+    config_value = app_config.llm_provider if app_config else None
+    return _normalize_provider(config_value)
+
+
+def _resolve_model(
+    *,
+    provider_name: str,
+    role_suffix: str,
+    config_override_model: str | None,
+    app_config: AppConfig | None,
+) -> str | None:
+    if provider_name == "openai":
+        return (
+            os.getenv(f"OPENAI_MODEL_{role_suffix}")
+            or os.getenv("OPENAI_MODEL")
+            or _config_or_empty(config_override_model)
+            or _config_or_empty(app_config.openai_model if app_config else None)
+            or _OPENAI_DEFAULT_MODEL
+        )
+    if provider_name == "gemini":
+        return (
+            os.getenv(f"GEMINI_MODEL_{role_suffix}")
+            or os.getenv("GEMINI_MODEL")
+            or _config_or_empty(config_override_model)
+            or _config_or_empty(app_config.gemini_model if app_config else None)
+            or _GEMINI_DEFAULT_MODEL
+        )
+    return None
+
+
+def resolve_api_key(provider_name: str, app_config: AppConfig | None = None) -> str:
+    if provider_name == "openai":
+        env_value = os.getenv("OPENAI_API_KEY")
+        if env_value is not None:
+            return env_value.strip()
+        return _config_or_empty(app_config.openai_api_key if app_config else None)
+    if provider_name == "gemini":
+        env_value = os.getenv("GEMINI_API_KEY")
+        if env_value is not None:
+            return env_value.strip()
+        return _config_or_empty(app_config.gemini_api_key if app_config else None)
+    return ""
+
+
+def resolved_api_key_source(provider_name: str, app_config: AppConfig | None = None) -> str:
+    if provider_name == "openai":
+        if os.getenv("OPENAI_API_KEY") is not None:
+            return "env"
+        if _config_or_empty(app_config.openai_api_key if app_config else None):
+            return "config"
+        return "missing"
+    if provider_name == "gemini":
+        if os.getenv("GEMINI_API_KEY") is not None:
+            return "env"
+        if _config_or_empty(app_config.gemini_api_key if app_config else None):
+            return "config"
+        return "missing"
+    return "missing"
+
+
+def mask_api_key(value: str | None) -> str:
+    text = (value or "").strip()
+    if not text:
+        return "missing"
+    if len(text) <= 8:
+        return "*" * len(text)
+    return f"{text[:4]}...{text[-4:]}"
+
+
+def resolve_role_provider_and_model(role_name: str, app_config: AppConfig | None = None) -> tuple[str, str | None]:
     role_suffix = _role_env_suffix(role_name)
+    override = _config_override(app_config, role_name)
     raw_role_provider = os.getenv(f"LLM_PROVIDER_{role_suffix}")
-    global_provider = _normalize_provider(os.getenv("MULTI_AGENT_APP_LLM_PROVIDER"))
+    if raw_role_provider is None:
+        raw_role_provider = override.get("provider")
+    global_provider = _resolve_global_provider(app_config)
     role_provider = _normalize_provider(raw_role_provider)
     selected_provider = role_provider if role_provider != "heuristic" or global_provider == "heuristic" else global_provider
     if (raw_role_provider or "").strip().lower() == "heuristic":
         selected_provider = "heuristic"
     if selected_provider == "openai":
-        return (
-            "openai",
-            os.getenv(f"OPENAI_MODEL_{role_suffix}") or os.getenv("OPENAI_MODEL", _OPENAI_DEFAULT_MODEL),
-        )
+        return ("openai", _resolve_model(
+            provider_name="openai",
+            role_suffix=role_suffix,
+            config_override_model=override.get("model"),
+            app_config=app_config,
+        ))
     if selected_provider == "gemini":
-        return (
-            "gemini",
-            os.getenv(f"GEMINI_MODEL_{role_suffix}") or os.getenv("GEMINI_MODEL", _GEMINI_DEFAULT_MODEL),
-        )
+        return ("gemini", _resolve_model(
+            provider_name="gemini",
+            role_suffix=role_suffix,
+            config_override_model=override.get("model"),
+            app_config=app_config,
+        ))
     return "heuristic", None
 
 
-def _provider_from_selection(provider_name: str, model: str | None) -> LLMProvider:
+def _provider_from_selection(provider_name: str, model: str | None, *, app_config: AppConfig | None = None) -> LLMProvider:
     if provider_name == "openai":
         return OpenAIChatProvider(
-            api_key=os.getenv("OPENAI_API_KEY"),
+            api_key=resolve_api_key("openai", app_config),
             model=model or _OPENAI_DEFAULT_MODEL,
         )
     if provider_name == "gemini":
         return GeminiProvider(
-            api_key=os.getenv("GEMINI_API_KEY"),
+            api_key=resolve_api_key("gemini", app_config),
             model=model or _GEMINI_DEFAULT_MODEL,
         )
     return NullLLMProvider()
@@ -631,25 +730,25 @@ def provider_key_status_label(
     return "provider enabled but key missing; using heuristic fallback."
 
 
-def provider_from_env() -> LLMProvider:
-    selected = os.getenv("MULTI_AGENT_APP_LLM_PROVIDER", "").strip().lower()
+def provider_from_env(app_config: AppConfig | None = None) -> LLMProvider:
+    selected = _resolve_global_provider(app_config)
     if selected == "openai":
-        api_key = os.getenv("OPENAI_API_KEY")
-        model = os.getenv("OPENAI_MODEL", _OPENAI_DEFAULT_MODEL)
+        api_key = resolve_api_key("openai", app_config)
+        model = os.getenv("OPENAI_MODEL") or _config_or_empty(app_config.openai_model if app_config else None) or _OPENAI_DEFAULT_MODEL
         return OpenAIChatProvider(api_key=api_key, model=model)
     if selected == "gemini":
-        api_key = os.getenv("GEMINI_API_KEY")
-        model = os.getenv("GEMINI_MODEL", _GEMINI_DEFAULT_MODEL)
+        api_key = resolve_api_key("gemini", app_config)
+        model = os.getenv("GEMINI_MODEL") or _config_or_empty(app_config.gemini_model if app_config else None) or _GEMINI_DEFAULT_MODEL
         return GeminiProvider(api_key=api_key, model=model)
     return NullLLMProvider()
 
 
-def provider_enabled_from_env() -> bool:
-    selected = _normalize_provider(os.getenv("MULTI_AGENT_APP_LLM_PROVIDER"))
+def provider_enabled_from_env(app_config: AppConfig | None = None) -> bool:
+    selected = _resolve_global_provider(app_config)
     if selected in {"openai", "gemini"}:
         return True
     for role in ("strateg", "analyst", "operator", "governance"):
-        role_provider, _ = resolve_role_provider_and_model(role)
+        role_provider, _ = resolve_role_provider_and_model(role, app_config=app_config)
         if role_provider in {"openai", "gemini"}:
             return True
     return False
@@ -658,6 +757,7 @@ def provider_enabled_from_env() -> bool:
 def apply_role_llm_overrides(
     *,
     provider: LLMProvider | None,
+    app_config: AppConfig | None = None,
     roles: list[models.AdvisorRole],
     question: str,
     context: Mapping[str, object],
@@ -686,8 +786,8 @@ def apply_role_llm_overrides(
 
     for role in roles:
         if provider is None:
-            provider_name, model = resolve_role_provider_and_model(role.name)
-            role_provider = _provider_from_selection(provider_name, model)
+            provider_name, model = resolve_role_provider_and_model(role.name, app_config=app_config)
+            role_provider = _provider_from_selection(provider_name, model, app_config=app_config)
         else:
             provider_name = provider.name
             model = getattr(provider, "model", None)

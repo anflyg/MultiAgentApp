@@ -10,7 +10,7 @@ from textual.widgets import Button, Footer, Header, Input, RichLog, Select, Stat
 from .cli import (
     ask_decision_panel,
 )
-from .config import ensure_app_config, load_app_config
+from .config import AppConfig, ensure_app_config, load_app_config
 from .llm import (
     provider_key_status_label,
     role_generation_mode_label,
@@ -75,9 +75,10 @@ class MultiAgentTUI(App[None]):
     #status { padding: 1; }
     """
 
-    def __init__(self, db_path: str = "multi_agent.db") -> None:
+    def __init__(self, db_path: str = "multi_agent.db", app_config: AppConfig | None = None) -> None:
         super().__init__()
         self.db_path = db_path
+        self.app_config = app_config
         self._active_decision_ids: list[str] = []
         self._recent_question_ids: list[str] = []
         self._selected_question_id: str | None = None
@@ -603,6 +604,7 @@ class MultiAgentTUI(App[None]):
                 question=question,
                 topic=topic,
                 workspace_id=self._active_workspace_id,
+                app_config=self.app_config,
             )
         except Exception as exc:  # Keep UI flow simple and resilient.
             self._status(f"Panel failed: {exc}")
@@ -727,8 +729,8 @@ class MultiAgentTUI(App[None]):
         self._refresh_dashboard()
 
 
-def run_tui(db_path: str = "multi_agent.db") -> None:
-    app = MultiAgentTUI(db_path=db_path)
+def run_tui(db_path: str = "multi_agent.db", app_config: AppConfig | None = None) -> None:
+    app = MultiAgentTUI(db_path=db_path, app_config=app_config)
     app.run()
 
 
@@ -746,7 +748,7 @@ def main() -> None:
     )
     args = parser.parse_args()
     ensure_app_config(args.config_path)
-    run_tui(db_path=args.db_path)
+    run_tui(db_path=args.db_path, app_config=config)
 
 
 if __name__ == "__main__":

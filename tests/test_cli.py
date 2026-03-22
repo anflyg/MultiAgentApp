@@ -246,7 +246,13 @@ def test_cli_config_init_and_show(tmp_path, capsys, monkeypatch):
         f'  "default_db_path": "{db_path}",\n'
         '  "default_session_name": "Cfg Session",\n'
         '  "default_task_description": "Cfg Task",\n'
-        '  "default_agent_name": "planner"\n'
+        '  "default_agent_name": "planner",\n'
+        '  "llm_provider": "gemini",\n'
+        '  "gemini_model": "gemini-2.0-flash",\n'
+        '  "gemini_api_key": "gemini-test-key",\n'
+        '  "role_llm_overrides": {\n'
+        '    "strateg": {"provider": "gemini", "model": "gemini-2.0-flash"}\n'
+        "  }\n"
         "}\n",
         encoding="utf-8",
     )
@@ -261,6 +267,10 @@ def test_cli_config_init_and_show(tmp_path, capsys, monkeypatch):
     assert "Config path:" in show_output
     assert str(config_path) in show_output
     assert f"default_db_path: {db_path}" in show_output
+    assert "llm_provider: gemini" in show_output
+    assert "Role provider map:" in show_output
+    assert "source=config" in show_output
+    assert "gemi..." in show_output
     assert "Provider status:" in show_output
     assert "Provider key status:" in show_output
 
@@ -295,7 +305,13 @@ def test_cli_doctor_outputs_consolidated_status(tmp_path, capsys, monkeypatch):
         f'  "default_db_path": "{db_path}",\n'
         '  "default_session_name": "Doctor Session",\n'
         '  "default_task_description": "Doctor Task",\n'
-        '  "default_agent_name": "writer"\n'
+        '  "default_agent_name": "writer",\n'
+        '  "llm_provider": "gemini",\n'
+        '  "gemini_model": "gemini-2.0-flash",\n'
+        '  "gemini_api_key": "gemini-test-key",\n'
+        '  "role_llm_overrides": {\n'
+        '    "operator": {"provider": "heuristic", "model": null}\n'
+        "  }\n"
         "}\n",
         encoding="utf-8",
     )
@@ -315,6 +331,9 @@ def test_cli_doctor_outputs_consolidated_status(tmp_path, capsys, monkeypatch):
     assert "Active workspace:" in output
     assert "Provider mode:" in output
     assert "Provider key status:" in output
+    assert "Role provider map:" in output
+    assert "Gemini key:" in output
+    assert "source=config" in output
     assert "Readiness:" in output
 
 

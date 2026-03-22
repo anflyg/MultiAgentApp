@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from multi_agent_app import models
 from multi_agent_app.cli import ask_decision_panel, create_decision, create_session
+from multi_agent_app.config import AppConfig
 from multi_agent_app.llm import (
     NullLLMProvider,
     _extract_chat_completions_text,
@@ -249,3 +250,66 @@ def test_provider_key_status_label_is_clear_for_missing_key():
     assert "key missing" in text
     assert "OPENAI_API_KEY" in text
     assert "heuristic fallback" in text
+
+
+def test_provider_from_env_uses_config_gemini_when_env_missing(monkeypatch):
+    monkeypatch.delenv("MULTI_AGENT_APP_LLM_PROVIDER", raising=False)
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    config = AppConfig(
+        llm_provider="gemini",
+        gemini_model="gemini-2.0-flash",
+        gemini_api_key="gemini-config-key",
+    )
+    provider = provider_from_env(config)
+    assert provider.name == "gemini"
+    assert provider.is_available() is True
+    assert getattr(provider, "model", None) == "gemini-2.0-flash"
+
+
+def test_resolve_role_provider_and_model_uses_config_role_override(monkeypatch):
+    monkeypatch.delenv("MULTI_AGENT_APP_LLM_PROVIDER", raising=False)
+    monkeypatch.delenv("LLM_PROVIDER_ANALYST", raising=False)
+    monkeypatch.delenv("GEMINI_MODEL_ANALYST", raising=False)
+    config = AppConfig(
+        llm_provider="gemini",
+        gemini_model="gemini-2.0-flash",
+        role_llm_overrides={
+            "analyst": {"provider": "openai", "model": "gpt-4o-mini"},
+        },
+    )
+
+    provider_name, model = resolve_role_provider_and_model("analyst", app_config=config)
+    assert provider_name == "openai"
+    assert model == "gpt-4o-mini"
+
+
+def test_ask_decision_panel_uses_config_role_provider_mapping(tmp_path, monkeypatch):
+    monkeypatch.delenv("MULTI_AGENT_APP_LLM_PROVIDER", raising=False)
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    db_path = tmp_path / "panel_config_providers.db"
+    session = create_session(str(db_path), "Panel Config Provider")
+    create_decision(str(db_path), session.id, "Direction", "Ops", "Keep weekly release cadence.")
+    config = AppConfig(
+        llm_provider="gemini",
+        gemini_model="gemini-2.0-flash",
+        role_llm_overrides={
+            "operator": {"provider": "heuristic", "model": None},
+        },
+    )
+
+    question, _, _, _, _, _, _ = ask_decision_panel(
+        db_path=str(db_path),
+        question="How should we run this change?",
+        topic="Ops",
+        app_config=config,
+    )
+    storage = Storage(db_path=str(db_path))
+    try:
+        analysis = storage.get_panel_question_analysis(question.id)
+        assert analysis is not None
+        llm_status = analysis.decision_status_assessment.get("llm_status", {})
+        role_provider_config = llm_status.get("role_provider_config", {})
+        assert role_provider_config.get("strateg", {}).get("provider") == "gemini"
+        assert role_provider_config.get("operator", {}).get("provider") == "heuristic"
+    finally:
+        storage.close()
