@@ -11,7 +11,12 @@ from .cli import (
     ask_decision_panel,
 )
 from .config import ensure_app_config, load_app_config
-from .llm import role_generation_mode_label, summarize_fallback_notes, summarize_role_provider_map
+from .llm import (
+    provider_key_status_label,
+    role_generation_mode_label,
+    summarize_fallback_notes,
+    summarize_role_provider_map,
+)
 from .panel import alignment_label, build_panel_outcome, decision_mode_label, likelihood_label
 from .storage import Storage
 
@@ -495,6 +500,14 @@ class MultiAgentTUI(App[None]):
                     available=provider_available,
                 )
                 + "\n"
+                "provider key status: "
+                + provider_key_status_label(
+                    provider=provider_name,
+                    enabled=provider_enabled,
+                    available=provider_available,
+                    role_provider_config=role_provider_config,
+                )
+                + "\n"
                 f"role providers: {provider_map}\n"
                 f"active advisors: {', '.join(active_roles) if active_roles else 'none'} | "
                 f"inactive: {', '.join(inactive_roles) if inactive_roles else 'none'}\n"
@@ -662,6 +675,15 @@ class MultiAgentTUI(App[None]):
                 model=provider_model,
                 enabled=provider_enabled,
                 available=provider_available,
+            )
+        )
+        output.write(
+            "Provider key status: "
+            + provider_key_status_label(
+                provider=provider_name,
+                enabled=provider_enabled,
+                available=provider_available,
+                role_provider_config=role_provider_config,
             )
         )
         if role_provider_config:

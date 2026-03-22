@@ -200,6 +200,8 @@ def test_cli_config_init_and_show(tmp_path, capsys, monkeypatch):
     assert "Config path:" in show_output
     assert str(config_path) in show_output
     assert f"default_db_path: {db_path}" in show_output
+    assert "Provider status:" in show_output
+    assert "Provider key status:" in show_output
 
     monkeypatch.setattr(
         sys,

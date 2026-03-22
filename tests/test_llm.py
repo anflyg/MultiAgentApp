@@ -9,6 +9,7 @@ from multi_agent_app.llm import (
     _extract_openai_error,
     _extract_openai_text,
     apply_role_llm_overrides,
+    provider_key_status_label,
     provider_from_env,
     resolve_role_provider_and_model,
     role_generation_mode_label,
@@ -236,3 +237,15 @@ def test_summarize_helpers_keep_status_compact():
         available=True,
     )
     assert "provider=mixed-per-role (model per role)" in mode
+
+
+def test_provider_key_status_label_is_clear_for_missing_key():
+    text = provider_key_status_label(
+        provider="openai",
+        enabled=True,
+        available=False,
+        role_provider_config={"operator": {"provider": "openai", "model": "gpt-4o-mini"}},
+    )
+    assert "key missing" in text
+    assert "OPENAI_API_KEY" in text
+    assert "heuristic fallback" in text

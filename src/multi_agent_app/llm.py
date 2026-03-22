@@ -595,6 +595,42 @@ def role_generation_mode_label(
     )
 
 
+def provider_key_status_label(
+    *,
+    provider: str,
+    enabled: bool,
+    available: bool,
+    role_provider_config: Mapping[str, Mapping[str, str | None]] | None = None,
+) -> str:
+    configured_providers: set[str] = set()
+    if role_provider_config:
+        for cfg in role_provider_config.values():
+            provider_name = (cfg.get("provider") or "heuristic").strip()
+            if provider_name in {"openai", "gemini"}:
+                configured_providers.add(provider_name)
+    if not configured_providers and provider in {"openai", "gemini"}:
+        configured_providers.add(provider)
+
+    env_by_provider = {
+        "openai": "OPENAI_API_KEY",
+        "gemini": "GEMINI_API_KEY",
+    }
+    expected_keys = ", ".join(env_by_provider[p] for p in sorted(configured_providers))
+
+    if not enabled:
+        return (
+            "heuristic mode only. Set MULTI_AGENT_APP_LLM_PROVIDER=openai|gemini "
+            "to enable provider calls."
+        )
+    if available:
+        if expected_keys:
+            return f"provider key detected ({expected_keys})."
+        return "provider key detected."
+    if expected_keys:
+        return f"provider enabled but key missing ({expected_keys}); using heuristic fallback."
+    return "provider enabled but key missing; using heuristic fallback."
+
+
 def provider_from_env() -> LLMProvider:
     selected = os.getenv("MULTI_AGENT_APP_LLM_PROVIDER", "").strip().lower()
     if selected == "openai":

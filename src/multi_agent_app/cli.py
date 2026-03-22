@@ -11,6 +11,7 @@ from .config import AppConfig, ensure_app_config, load_app_config, write_app_con
 from .llm import (
     LLMProvider,
     apply_role_llm_overrides,
+    provider_key_status_label,
     provider_enabled_from_env,
     provider_from_env,
     role_generation_mode_label,
@@ -123,6 +124,24 @@ def _print_advisor_response_line(
     print(
         f"{label} [{_role_response_source_label(role_sources.get(role_name, 'heuristic'))}]: "
         f"{by_agent.get(role_name, '-')}"
+    )
+
+
+def _print_provider_key_status(
+    *,
+    provider_name: str,
+    provider_enabled: bool,
+    provider_available: bool,
+    role_provider_config: dict[str, dict[str, str | None]],
+) -> None:
+    print(
+        "Provider key status: "
+        + provider_key_status_label(
+            provider=provider_name,
+            enabled=provider_enabled,
+            available=provider_available,
+            role_provider_config=role_provider_config,
+        )
     )
 
 
@@ -1542,12 +1561,33 @@ def main() -> None:
         return
 
     if args.command == "config-show":
+        provider = provider_from_env()
+        provider_enabled = provider_enabled_from_env()
+        provider_available = provider.is_available()
         print(f"Config path: {resolved_config_path}")
         print(f"Config file exists: {'yes' if resolved_config_path.exists() else 'no'}")
+        print("User defaults:")
         print(f"default_db_path: {app_config.default_db_path}")
         print(f"default_session_name: {app_config.default_session_name}")
         print(f"default_task_description: {app_config.default_task_description}")
         print(f"default_agent_name: {app_config.default_agent_name}")
+        print("Provider status:")
+        print(
+            "Role generation mode: "
+            + role_generation_mode_label(
+                provider=provider.name,
+                model=getattr(provider, "model", None),
+                enabled=provider_enabled,
+                available=provider_available,
+            )
+        )
+        _print_provider_key_status(
+            provider_name=provider.name,
+            provider_enabled=provider_enabled,
+            provider_available=provider_available,
+            role_provider_config={},
+        )
+        print("Internal state remains in database (example: active workspace).")
         return
 
     app_config, resolved_config_path, _ = ensure_app_config(args.config_path)
@@ -2020,6 +2060,12 @@ def main() -> None:
                 available=provider_available,
             )
         )
+        _print_provider_key_status(
+            provider_name=provider_name,
+            provider_enabled=provider_enabled,
+            provider_available=provider_available,
+            role_provider_config=role_provider_config,
+        )
         if role_provider_config:
             print(f"Role provider map: {summarize_role_provider_map(role_provider_config)}")
         print(
@@ -2029,7 +2075,10 @@ def main() -> None:
             + (", ".join(inactive_roles) if inactive_roles else "none")
         )
         if fallback_reasons:
-            print(f"Fallback notes: {summarize_fallback_notes(fallback_reasons)}")
+            print(
+                "Fallback to heuristic (by role): "
+                + summarize_fallback_notes(fallback_reasons)
+            )
         print(f"Decision context at a glance: {_context_signal_line(context)}")
         draft = _build_decision_candidate_draft(
             question_text=panel_question.question_text,
@@ -2165,6 +2214,12 @@ def main() -> None:
                     available=provider_available,
                 )
             )
+            _print_provider_key_status(
+                provider_name=provider_name,
+                provider_enabled=provider_enabled,
+                provider_available=provider_available,
+                role_provider_config=role_provider_config,
+            )
             if role_provider_config:
                 print(f"Role provider map: {summarize_role_provider_map(role_provider_config)}")
             print(
@@ -2174,7 +2229,10 @@ def main() -> None:
                 + (", ".join(inactive_roles) if inactive_roles else "none")
             )
             if fallback_reasons:
-                print(f"Fallback notes: {summarize_fallback_notes(fallback_reasons)}")
+                print(
+                    "Fallback to heuristic (by role): "
+                    + summarize_fallback_notes(fallback_reasons)
+                )
             relevant_context = sections.get("relevant_context", {})
             active_ids = relevant_context.get("active_decision_ids", []) if isinstance(relevant_context, dict) else []
             historical_ids = (
