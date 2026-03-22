@@ -218,18 +218,20 @@ def assess_question_against_active_decisions(
 
 
 def build_context_packet(
-    storage: Storage, topic: str, session_id: str | None = None
+    storage: Storage,
+    topic: str,
+    session_id: str | None = None,
+    workspace_id: str | None = None,
 ) -> PanelContext:
     if session_id:
         decisions = storage.list_decisions_for_session(session_id)
         candidates = storage.list_decision_candidates_for_session(session_id)
     else:
+        scoped_workspace_id = workspace_id or storage.get_active_workspace().id
         decisions = []
-        for session in storage.list_sessions():
+        candidates = storage.list_open_decision_candidates(workspace_id=scoped_workspace_id)
+        for session in storage.list_sessions_for_workspace(scoped_workspace_id):
             decisions.extend(storage.list_decisions_for_session(session.id))
-        candidates = []
-        for session in storage.list_sessions():
-            candidates.extend(storage.list_decision_candidates_for_session(session.id))
 
     topic_decisions = [decision for decision in decisions if decision.topic == topic]
     active_decisions = [decision for decision in topic_decisions if decision.status == "active"]
@@ -241,7 +243,8 @@ def build_context_packet(
     ]
 
     relevant_suggestions: list[models.DecisionSuggestion] = []
-    for suggestion in storage.list_open_suggestions():
+    suggestion_workspace_id = workspace_id if not session_id else None
+    for suggestion in storage.list_open_suggestions(workspace_id=suggestion_workspace_id):
         source = storage.get_decision(suggestion.source_decision_id)
         target = storage.get_decision(suggestion.target_decision_id)
         if source is None or target is None:

@@ -316,6 +316,86 @@ def test_storage_workspaces_active_state_and_question_scope():
         storage.close()
 
 
+def test_storage_workspace_scoped_lists_for_dashboard_and_panel():
+    storage = Storage(db_path=":memory:")
+    try:
+        ws_a = storage.create_workspace(name="A", description="Workspace A")
+        ws_b = storage.create_workspace(name="B", description="Workspace B")
+
+        session_a = models.Session(name="Session A", workspace_id=ws_a.id)
+        session_b = models.Session(name="Session B", workspace_id=ws_b.id)
+        storage.add_session(session_a)
+        storage.add_session(session_b)
+
+        decision_a = models.Decision(
+            session_id=session_a.id,
+            title="A decision",
+            topic="Ops",
+            decision_text="A path",
+        )
+        decision_b = models.Decision(
+            session_id=session_b.id,
+            title="B decision",
+            topic="Ops",
+            decision_text="B path",
+        )
+        storage.add_decision(decision_a)
+        storage.add_decision(decision_b)
+
+        candidate_a = models.DecisionCandidate(
+            session_id=session_a.id,
+            title="A candidate",
+            topic="Ops",
+            candidate_text="A candidate path",
+        )
+        candidate_b = models.DecisionCandidate(
+            session_id=session_b.id,
+            title="B candidate",
+            topic="Ops",
+            candidate_text="B candidate path",
+        )
+        storage.add_decision_candidate(candidate_a)
+        storage.add_decision_candidate(candidate_b)
+
+        suggestion_a = models.DecisionSuggestion(
+            source_decision_id=decision_a.id,
+            target_decision_id=decision_a.id,
+            suggestion_type="related_decision",
+            reason="A scope",
+        )
+        suggestion_b = models.DecisionSuggestion(
+            source_decision_id=decision_b.id,
+            target_decision_id=decision_b.id,
+            suggestion_type="related_decision",
+            reason="B scope",
+        )
+        # self-links are not valid for realistic usage, but valid FK-wise for this storage-level filter test.
+        storage.add_decision_suggestion(suggestion_a)
+        storage.add_decision_suggestion(suggestion_b)
+
+        storage.add_session_event(
+            models.SessionEvent(
+                session_id=session_a.id,
+                event_type="decision_created",
+                message="A event",
+            )
+        )
+        storage.add_session_event(
+            models.SessionEvent(
+                session_id=session_b.id,
+                event_type="decision_created",
+                message="B event",
+            )
+        )
+
+        assert [d.id for d in storage.list_active_decisions(workspace_id=ws_a.id)] == [decision_a.id]
+        assert [c.id for c in storage.list_open_decision_candidates(workspace_id=ws_a.id)] == [candidate_a.id]
+        assert [s.id for s in storage.list_open_suggestions(workspace_id=ws_a.id)] == [suggestion_a.id]
+        assert [e.session_id for e in storage.list_recent_session_events(workspace_id=ws_a.id)] == [session_a.id]
+    finally:
+        storage.close()
+
+
 def test_storage_reasoning_items_migrate_memory_level_default(tmp_path):
     db_path = tmp_path / "legacy_reasoning_visibility.db"
     conn = sqlite3.connect(db_path)

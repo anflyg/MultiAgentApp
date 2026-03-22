@@ -549,7 +549,12 @@ def create_decision(
         storage.close()
 
 
-def list_decisions(db_path: str, session_id: str | None = None) -> List[models.Decision]:
+def list_decisions(
+    db_path: str,
+    session_id: str | None = None,
+    workspace_id: str | None = None,
+    all_workspaces: bool = False,
+) -> List[models.Decision]:
     storage = Storage(db_path=db_path)
     try:
         if session_id:
@@ -557,7 +562,10 @@ def list_decisions(db_path: str, session_id: str | None = None) -> List[models.D
             if session is None:
                 raise ValueError(f"Session '{session_id}' was not found")
             return storage.list_decisions_for_session(session_id)
-        return storage.list_active_decisions()
+        if all_workspaces:
+            return storage.list_active_decisions(workspace_id=None)
+        scoped_workspace_id = workspace_id or storage.get_active_workspace().id
+        return storage.list_active_decisions(workspace_id=scoped_workspace_id)
     finally:
         storage.close()
 
@@ -600,7 +608,10 @@ def create_decision_candidate(
 
 
 def list_decision_candidates(
-    db_path: str, session_id: str | None = None
+    db_path: str,
+    session_id: str | None = None,
+    workspace_id: str | None = None,
+    all_workspaces: bool = False,
 ) -> List[models.DecisionCandidate]:
     storage = Storage(db_path=db_path)
     try:
@@ -609,7 +620,10 @@ def list_decision_candidates(
             if session is None:
                 raise ValueError(f"Session '{session_id}' was not found")
             return storage.list_decision_candidates_for_session(session_id)
-        return storage.list_open_decision_candidates()
+        if all_workspaces:
+            return storage.list_open_decision_candidates(workspace_id=None)
+        scoped_workspace_id = workspace_id or storage.get_active_workspace().id
+        return storage.list_open_decision_candidates(workspace_id=scoped_workspace_id)
     finally:
         storage.close()
 
@@ -782,9 +796,13 @@ def suggest_decision_links(db_path: str, decision_id: str) -> List[models.Decisi
         source_decision = storage.get_decision(decision_id)
         if source_decision is None:
             raise ValueError(f"Decision '{decision_id}' was not found")
+        source_session = storage.get_session(source_decision.session_id)
+        if source_session is None:
+            raise ValueError(f"Session '{source_decision.session_id}' was not found")
+        source_workspace_id = source_session.workspace_id
 
         created: List[models.DecisionSuggestion] = []
-        for target_decision in storage.list_active_decisions():
+        for target_decision in storage.list_active_decisions(workspace_id=source_workspace_id):
             if target_decision.id == source_decision.id:
                 continue
             if target_decision.topic != source_decision.topic:
@@ -832,7 +850,10 @@ def suggest_decision_links(db_path: str, decision_id: str) -> List[models.Decisi
 
 
 def list_decision_suggestions(
-    db_path: str, decision_id: str | None = None
+    db_path: str,
+    decision_id: str | None = None,
+    workspace_id: str | None = None,
+    all_workspaces: bool = False,
 ) -> List[models.DecisionSuggestion]:
     storage = Storage(db_path=db_path)
     try:
@@ -841,7 +862,10 @@ def list_decision_suggestions(
             if decision is None:
                 raise ValueError(f"Decision '{decision_id}' was not found")
             return storage.list_suggestions_for_decision(decision_id)
-        return storage.list_open_suggestions()
+        if all_workspaces:
+            return storage.list_open_suggestions(workspace_id=None)
+        scoped_workspace_id = workspace_id or storage.get_active_workspace().id
+        return storage.list_open_suggestions(workspace_id=scoped_workspace_id)
     finally:
         storage.close()
 
@@ -975,7 +999,12 @@ def ask_decision_panel(
             workspace_id=resolved_workspace_id,
         )
         storage.add_panel_question(panel_question)
-        context = build_context_packet(storage, topic=normalized_topic, session_id=session_id)
+        context = build_context_packet(
+            storage,
+            topic=normalized_topic,
+            session_id=session_id,
+            workspace_id=resolved_workspace_id,
+        )
         assessment = assess_question_against_active_decisions(
             normalized_question, context["active_decisions"]
         )
@@ -1341,6 +1370,11 @@ def _build_parser() -> argparse.ArgumentParser:
 
     list_decisions_parser = subparsers.add_parser("list-decisions", help="List decisions.")
     list_decisions_parser.add_argument("--session-id", help="Optional session id.")
+    list_decisions_parser.add_argument(
+        "--all-workspaces",
+        action="store_true",
+        help="Use global scope across all workspaces (explicit override).",
+    )
 
     create_candidate_parser = subparsers.add_parser(
         "create-decision-candidate", help="Create a decision candidate for a session."
@@ -1361,6 +1395,11 @@ def _build_parser() -> argparse.ArgumentParser:
 
     list_candidates_parser = subparsers.add_parser("list-decision-candidates", help="List decision candidates.")
     list_candidates_parser.add_argument("--session-id", help="Optional session id.")
+    list_candidates_parser.add_argument(
+        "--all-workspaces",
+        action="store_true",
+        help="Use global scope across all workspaces (explicit override).",
+    )
 
     confirm_candidate_parser = subparsers.add_parser(
         "confirm-decision-candidate", help="Confirm a proposed decision candidate."
@@ -1395,6 +1434,11 @@ def _build_parser() -> argparse.ArgumentParser:
 
     list_suggestions_parser = subparsers.add_parser("list-decision-suggestions", help="List decision suggestions.")
     list_suggestions_parser.add_argument("--decision-id", help="Optional decision id.")
+    list_suggestions_parser.add_argument(
+        "--all-workspaces",
+        action="store_true",
+        help="Use global scope across all workspaces (explicit override).",
+    )
 
     accept_suggestion_parser = subparsers.add_parser(
         "accept-decision-suggestion", help="Accept an open decision suggestion."
@@ -1605,11 +1649,21 @@ def main() -> None:
 
     if args.command == "list-decisions":
         try:
-            decisions = list_decisions(args.db_path, session_id=args.session_id)
+            decisions = list_decisions(
+                args.db_path,
+                session_id=args.session_id,
+                workspace_id=active_workspace.id,
+                all_workspaces=args.all_workspaces,
+            )
         except ValueError as exc:
             print(f"Decision listing failed: {exc}")
             raise SystemExit(1) from exc
-        scope = args.session_id if args.session_id else "all active"
+        if args.session_id:
+            scope = f"session={args.session_id}"
+        elif args.all_workspaces:
+            scope = "all active (all workspaces)"
+        else:
+            scope = f"active workspace={active_workspace.name}"
         print(f"Decisions ({scope}): {len(decisions)}")
         for decision in decisions:
             print(
@@ -1643,11 +1697,21 @@ def main() -> None:
 
     if args.command == "list-decision-candidates":
         try:
-            candidates = list_decision_candidates(args.db_path, session_id=args.session_id)
+            candidates = list_decision_candidates(
+                args.db_path,
+                session_id=args.session_id,
+                workspace_id=active_workspace.id,
+                all_workspaces=args.all_workspaces,
+            )
         except ValueError as exc:
             print(f"Decision candidate listing failed: {exc}")
             raise SystemExit(1) from exc
-        scope = args.session_id if args.session_id else "all proposed"
+        if args.session_id:
+            scope = f"session={args.session_id}"
+        elif args.all_workspaces:
+            scope = "all proposed (all workspaces)"
+        else:
+            scope = f"active workspace={active_workspace.name}"
         print(f"Decision candidates ({scope}): {len(candidates)}")
         for candidate in candidates:
             print(
@@ -1756,11 +1820,21 @@ def main() -> None:
 
     if args.command == "list-decision-suggestions":
         try:
-            suggestions = list_decision_suggestions(args.db_path, decision_id=args.decision_id)
+            suggestions = list_decision_suggestions(
+                args.db_path,
+                decision_id=args.decision_id,
+                workspace_id=active_workspace.id,
+                all_workspaces=args.all_workspaces,
+            )
         except ValueError as exc:
             print(f"Decision suggestion listing failed: {exc}")
             raise SystemExit(1) from exc
-        scope = args.decision_id if args.decision_id else "all open"
+        if args.decision_id:
+            scope = f"decision={args.decision_id}"
+        elif args.all_workspaces:
+            scope = "all open (all workspaces)"
+        else:
+            scope = f"active workspace={active_workspace.name}"
         print(f"Decision suggestions ({scope}): {len(suggestions)}")
         for suggestion in suggestions:
             print(

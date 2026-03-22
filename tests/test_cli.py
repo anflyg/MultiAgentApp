@@ -324,8 +324,111 @@ def test_cli_list_decisions_command(tmp_path, capsys, monkeypatch):
     )
     main()
     global_output = capsys.readouterr().out
-    assert "all active" in global_output
+    assert "active workspace=" in global_output
     assert "Keep logs" in global_output
+
+
+def test_cli_list_decisions_defaults_to_active_workspace_and_can_override_global(
+    tmp_path, capsys, monkeypatch
+):
+    db_path = tmp_path / "decision_workspace_scope_cli.db"
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "main.py",
+            "--db-path",
+            str(db_path),
+            "workspace-create",
+            "--name",
+            "A",
+        ],
+    )
+    main()
+    capsys.readouterr()
+
+    session_a = create_session(str(db_path), "Session A")
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "main.py",
+            "--db-path",
+            str(db_path),
+            "create-decision",
+            "--session-id",
+            session_a.id,
+            "--title",
+            "A decision",
+            "--topic",
+            "Ops",
+            "--text",
+            "A path",
+        ],
+    )
+    main()
+    capsys.readouterr()
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["main.py", "--db-path", str(db_path), "workspace-create", "--name", "B"],
+    )
+    main()
+    capsys.readouterr()
+
+    session_b = create_session(str(db_path), "Session B")
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "main.py",
+            "--db-path",
+            str(db_path),
+            "create-decision",
+            "--session-id",
+            session_b.id,
+            "--title",
+            "B decision",
+            "--topic",
+            "Ops",
+            "--text",
+            "B path",
+        ],
+    )
+    main()
+    capsys.readouterr()
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["main.py", "--db-path", str(db_path), "workspace-use", "--name", "A"],
+    )
+    main()
+    capsys.readouterr()
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["main.py", "--db-path", str(db_path), "list-decisions"],
+    )
+    main()
+    scoped_output = capsys.readouterr().out
+    assert "active workspace=A" in scoped_output
+    assert "A decision" in scoped_output
+    assert "B decision" not in scoped_output
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["main.py", "--db-path", str(db_path), "list-decisions", "--all-workspaces"],
+    )
+    main()
+    global_output = capsys.readouterr().out
+    assert "all workspaces" in global_output
+    assert "A decision" in global_output
+    assert "B decision" in global_output
 
 
 def test_cli_create_decision_invalid_session_fails(tmp_path, capsys, monkeypatch):
@@ -420,7 +523,7 @@ def test_cli_create_and_list_decision_candidates(tmp_path, capsys, monkeypatch):
     )
     main()
     list_output = capsys.readouterr().out
-    assert "all proposed" in list_output
+    assert "active workspace=" in list_output
     assert "Keep default DB" in list_output
 
 

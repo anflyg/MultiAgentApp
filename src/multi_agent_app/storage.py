@@ -705,10 +705,16 @@ class Storage:
         ).fetchall()
         return [self._decision_from_row(row) for row in rows]
 
-    def list_active_decisions(self) -> List[models.Decision]:
-        rows = self._conn.execute(
-            "SELECT * FROM decisions WHERE status = 'active' ORDER BY created_at DESC"
-        ).fetchall()
+    def list_active_decisions(self, workspace_id: str | None = None) -> List[models.Decision]:
+        query = "SELECT d.* FROM decisions d"
+        params: List[object] = []
+        if workspace_id:
+            query += " JOIN sessions s ON s.id = d.session_id WHERE d.status = 'active' AND s.workspace_id = ?"
+            params.append(workspace_id)
+        else:
+            query += " WHERE d.status = 'active'"
+        query += " ORDER BY d.created_at DESC"
+        rows = self._conn.execute(query, tuple(params)).fetchall()
         return [self._decision_from_row(row) for row in rows]
 
     def _decision_from_row(self, row: sqlite3.Row) -> models.Decision:
@@ -854,14 +860,33 @@ class Storage:
         ).fetchall()
         return [self._decision_suggestion_from_row(row) for row in rows]
 
-    def list_open_suggestions(self) -> List[models.DecisionSuggestion]:
-        rows = self._conn.execute(
-            "SELECT * FROM decision_suggestions WHERE status = 'open' ORDER BY created_at DESC"
-        ).fetchall()
+    def list_open_suggestions(self, workspace_id: str | None = None) -> List[models.DecisionSuggestion]:
+        if workspace_id:
+            rows = self._conn.execute(
+                """
+                SELECT ds.*
+                FROM decision_suggestions ds
+                JOIN decisions sd ON sd.id = ds.source_decision_id
+                JOIN decisions td ON td.id = ds.target_decision_id
+                JOIN sessions ss ON ss.id = sd.session_id
+                JOIN sessions ts ON ts.id = td.session_id
+                WHERE ds.status = 'open'
+                AND ss.workspace_id = ?
+                AND ts.workspace_id = ?
+                ORDER BY ds.created_at DESC
+                """,
+                (workspace_id, workspace_id),
+            ).fetchall()
+        else:
+            rows = self._conn.execute(
+                "SELECT * FROM decision_suggestions WHERE status = 'open' ORDER BY created_at DESC"
+            ).fetchall()
         return [self._decision_suggestion_from_row(row) for row in rows]
 
-    def list_open_decision_suggestions(self) -> List[models.DecisionSuggestion]:
-        return self.list_open_suggestions()
+    def list_open_decision_suggestions(
+        self, workspace_id: str | None = None
+    ) -> List[models.DecisionSuggestion]:
+        return self.list_open_suggestions(workspace_id=workspace_id)
 
     def _decision_suggestion_from_row(self, row: sqlite3.Row) -> models.DecisionSuggestion:
         return models.DecisionSuggestion(
@@ -1154,10 +1179,18 @@ class Storage:
         ).fetchall()
         return [self._decision_candidate_from_row(row) for row in rows]
 
-    def list_open_decision_candidates(self) -> List[models.DecisionCandidate]:
-        rows = self._conn.execute(
-            "SELECT * FROM decision_candidates WHERE status = 'proposed' ORDER BY created_at DESC"
-        ).fetchall()
+    def list_open_decision_candidates(
+        self, workspace_id: str | None = None
+    ) -> List[models.DecisionCandidate]:
+        query = "SELECT dc.* FROM decision_candidates dc"
+        params: List[object] = []
+        if workspace_id:
+            query += " JOIN sessions s ON s.id = dc.session_id WHERE dc.status = 'proposed' AND s.workspace_id = ?"
+            params.append(workspace_id)
+        else:
+            query += " WHERE dc.status = 'proposed'"
+        query += " ORDER BY dc.created_at DESC"
+        rows = self._conn.execute(query, tuple(params)).fetchall()
         return [self._decision_candidate_from_row(row) for row in rows]
 
     def _decision_candidate_from_row(self, row: sqlite3.Row) -> models.DecisionCandidate:
@@ -1190,11 +1223,26 @@ class Storage:
             for row in rows
         ]
 
-    def list_recent_session_events(self, limit: int = 10) -> List[models.SessionEvent]:
-        rows = self._conn.execute(
-            "SELECT * FROM session_events ORDER BY created_at DESC LIMIT ?",
-            (limit,),
-        ).fetchall()
+    def list_recent_session_events(
+        self, limit: int = 10, workspace_id: str | None = None
+    ) -> List[models.SessionEvent]:
+        if workspace_id:
+            rows = self._conn.execute(
+                """
+                SELECT se.*
+                FROM session_events se
+                JOIN sessions s ON s.id = se.session_id
+                WHERE s.workspace_id = ?
+                ORDER BY se.created_at DESC
+                LIMIT ?
+                """,
+                (workspace_id, limit),
+            ).fetchall()
+        else:
+            rows = self._conn.execute(
+                "SELECT * FROM session_events ORDER BY created_at DESC LIMIT ?",
+                (limit,),
+            ).fetchall()
         return [
             models.SessionEvent(
                 id=row["id"],

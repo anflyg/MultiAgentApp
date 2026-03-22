@@ -186,7 +186,7 @@ def test_cli_suggest_and_list_open_suggestions(tmp_path, capsys, monkeypatch):
     )
     main()
     list_output = capsys.readouterr().out
-    assert "Decision suggestions (all open)" in list_output
+    assert "Decision suggestions (active workspace=" in list_output
     assert "open/related_decision" in list_output
 
 

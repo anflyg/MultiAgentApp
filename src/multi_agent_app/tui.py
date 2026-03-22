@@ -154,10 +154,13 @@ class MultiAgentTUI(App[None]):
             workspaces = storage.list_workspaces()
             active_workspace = storage.get_active_workspace()
             self._active_workspace_id = active_workspace.id
-            active_decisions = storage.list_active_decisions()
-            open_candidates = storage.list_open_decision_candidates()
-            open_suggestions = storage.list_open_decision_suggestions()
-            recent_events = storage.list_recent_session_events(limit=10)
+            active_decisions = storage.list_active_decisions(workspace_id=active_workspace.id)
+            open_candidates = storage.list_open_decision_candidates(workspace_id=active_workspace.id)
+            open_suggestions = storage.list_open_decision_suggestions(workspace_id=active_workspace.id)
+            recent_events = storage.list_recent_session_events(
+                limit=10,
+                workspace_id=active_workspace.id,
+            )
             recent_questions = storage.list_panel_questions(
                 workspace_id=active_workspace.id,
                 limit=10,
@@ -186,7 +189,7 @@ class MultiAgentTUI(App[None]):
             f"Active decisions: {len(active_decisions)}\n"
             f"Pending candidates: {len(open_candidates)}\n"
             f"Pending suggestions: {len(open_suggestions)}\n"
-            f"Recent session events: {len(recent_events)}"
+            f"Recent session events (workspace): {len(recent_events)}"
         )
         self.query_one("#summary", Static).update(summary_text)
 
