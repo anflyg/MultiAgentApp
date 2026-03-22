@@ -226,6 +226,49 @@ def test_cli_config_init_creates_file(tmp_path, capsys, monkeypatch):
     assert config_path.exists()
 
 
+def test_cli_doctor_outputs_consolidated_status(tmp_path, capsys, monkeypatch):
+    config_path = tmp_path / "doctor_config.json"
+    db_path = tmp_path / "doctor.db"
+    config_path.write_text(
+        "{\n"
+        f'  "default_db_path": "{db_path}",\n'
+        '  "default_session_name": "Doctor Session",\n'
+        '  "default_task_description": "Doctor Task",\n'
+        '  "default_agent_name": "writer"\n'
+        "}\n",
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["main.py", "--config-path", str(config_path), "doctor"],
+    )
+    main()
+    output = capsys.readouterr().out
+    assert "App doctor" in output
+    assert "Config path:" in output
+    assert "Config exists: yes" in output
+    assert "Default db path:" in output
+    assert "Effective db path:" in output
+    assert "Active workspace:" in output
+    assert "Provider mode:" in output
+    assert "Provider key status:" in output
+    assert "Readiness:" in output
+
+
+def test_cli_app_status_alias_works(tmp_path, capsys, monkeypatch):
+    config_path = tmp_path / "status_alias_config.json"
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["main.py", "--config-path", str(config_path), "app-status"],
+    )
+    main()
+    output = capsys.readouterr().out
+    assert "App doctor" in output
+
+
 def test_cli_run_task_command(tmp_path, capsys, monkeypatch):
     db_path = tmp_path / "run_task_cli.db"
     session = create_session(str(db_path), "Run Task Session")

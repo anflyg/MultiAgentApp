@@ -19,6 +19,9 @@ dev = [
   "pytest>=8.1.0",
 ]
 
+[project.scripts]
+multi-agent-app = "multi_agent_app.cli:main"
+
 [tool.setuptools]
 package-dir = {"" = "src"}
 

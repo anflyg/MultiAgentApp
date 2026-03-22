@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import sqlite3
 from collections import Counter
 from typing import Dict, List
@@ -14,6 +15,7 @@ from .llm import (
     provider_key_status_label,
     provider_enabled_from_env,
     provider_from_env,
+    resolve_role_provider_and_model,
     role_generation_mode_label,
     summarize_fallback_notes,
     summarize_role_provider_map,
@@ -143,6 +145,14 @@ def _print_provider_key_status(
             role_provider_config=role_provider_config,
         )
     )
+
+
+def _doctor_readiness_label(*, provider_enabled: bool, provider_available: bool) -> str:
+    if provider_enabled and not provider_available:
+        return "provider configured but key missing"
+    if provider_enabled and provider_available:
+        return "ready for local use (provider active)"
+    return "ready for local use (heuristic mode)"
 
 
 def _reasoning_signature(
@@ -1340,6 +1350,11 @@ def _build_parser(config: AppConfig, config_path: str | None = None) -> argparse
         action="store_true",
         help="Overwrite config file if it already exists.",
     )
+    subparsers.add_parser(
+        "doctor",
+        aliases=["app-status"],
+        help="Show consolidated readiness and environment status.",
+    )
 
     create_workspace_parser = subparsers.add_parser("workspace-create", help="Create a new workspace.")
     create_workspace_parser.add_argument("--name", required=True, help="Workspace name.")
@@ -1588,6 +1603,84 @@ def main() -> None:
             role_provider_config={},
         )
         print("Internal state remains in database (example: active workspace).")
+        return
+
+    if args.command in {"doctor", "app-status"}:
+        role_provider_config: dict[str, dict[str, str | None]] = {}
+        for role_name in ("strateg", "analyst", "operator", "governance"):
+            provider_name, model = resolve_role_provider_and_model(role_name)
+            role_provider_config[role_name] = {
+                "provider": provider_name,
+                "model": model,
+            }
+        configured_providers = sorted(
+            {
+                (cfg.get("provider") or "heuristic")
+                for cfg in role_provider_config.values()
+                if (cfg.get("provider") or "heuristic") != "heuristic"
+            }
+        )
+        configured_models = sorted(
+            {
+                (cfg.get("model") or "-")
+                for cfg in role_provider_config.values()
+                if (cfg.get("provider") or "heuristic") != "heuristic"
+            }
+        )
+        provider_name = (
+            configured_providers[0]
+            if len(configured_providers) == 1
+            else ("mixed" if configured_providers else "heuristic")
+        )
+        provider_model = (
+            configured_models[0]
+            if len(configured_models) == 1
+            else ("mixed" if configured_models else None)
+        )
+        provider_enabled = bool(configured_providers)
+        provider_available = any(
+            (provider == "openai" and bool(os.getenv("OPENAI_API_KEY")))
+            or (provider == "gemini" and bool(os.getenv("GEMINI_API_KEY")))
+            for provider in configured_providers
+        )
+        try:
+            active_workspace = resolve_active_workspace(args.db_path)
+            workspace_line = f"{active_workspace.name} ({active_workspace.id})"
+        except Exception as exc:  # Keep doctor command resilient.
+            workspace_line = f"unavailable ({exc})"
+
+        print("App doctor")
+        print(f"Config path: {resolved_config_path}")
+        print(f"Config exists: {'yes' if resolved_config_path.exists() else 'no'}")
+        print(f"Default db path: {app_config.default_db_path}")
+        print(f"Effective db path: {args.db_path}")
+        print(f"Active workspace: {workspace_line}")
+        print(
+            "Provider mode: "
+            + role_generation_mode_label(
+                provider=provider_name,
+                model=provider_model,
+                enabled=provider_enabled,
+                available=provider_available,
+            )
+        )
+        print(
+            "Provider key status: "
+            + provider_key_status_label(
+                provider=provider_name,
+                enabled=provider_enabled,
+                available=provider_available,
+                role_provider_config=role_provider_config,
+            )
+        )
+        print(f"Role provider map: {summarize_role_provider_map(role_provider_config)}")
+        print(
+            "Readiness: "
+            + _doctor_readiness_label(
+                provider_enabled=provider_enabled,
+                provider_available=provider_available,
+            )
+        )
         return
 
     app_config, resolved_config_path, _ = ensure_app_config(args.config_path)
@@ -2391,8 +2484,10 @@ def main() -> None:
     print(f"Agent output: {result['action'].content}")
     print(f"Memory items created: {len(result['memory_items'])}")
     print("Onboarding tip:")
+    print(f"- Quick health check: python src/main.py --db-path {args.db_path} doctor")
     print(f"- Quick demo: python src/main.py --db-path {args.db_path} alpha-demo-setup")
     print(f"- Open dashboard: python src/main.py --db-path {args.db_path} tui")
+    print("- Installed entrypoint: multi-agent-app doctor")
 
 
 if __name__ == "__main__":
