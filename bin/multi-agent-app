@@ -1,0 +1,71 @@
+#!python
+from __future__ import annotations
+
+import json
+import sys
+from pathlib import Path
+from urllib.parse import unquote, urlparse
+
+
+def _try_bootstrap_editable_path() -> None:
+    script_path = Path(__file__).resolve()
+    local_candidates = [
+        script_path.parent.parent / "src",
+        script_path.parent.parent,
+        Path.cwd() / "src",
+    ]
+    for candidate in local_candidates:
+        if candidate.exists():
+            candidate_text = str(candidate.resolve())
+            if candidate_text not in sys.path:
+                sys.path.insert(0, candidate_text)
+
+    try:
+        from importlib.metadata import PackageNotFoundError, distribution
+    except Exception:
+        return
+
+    try:
+        dist = distribution("multi-agent-app")
+    except PackageNotFoundError:
+        return
+    except Exception:
+        return
+
+    raw = dist.read_text("direct_url.json")
+    if not raw:
+        return
+    try:
+        payload = json.loads(raw)
+    except json.JSONDecodeError:
+        return
+    url = payload.get("url")
+    if not isinstance(url, str):
+        return
+    parsed = urlparse(url)
+    if parsed.scheme != "file":
+        return
+    project_root = Path(unquote(parsed.path)).resolve()
+    candidates = [project_root / "src", project_root]
+    for candidate in candidates:
+        if candidate.exists():
+            candidate_text = str(candidate)
+            if candidate_text not in sys.path:
+                sys.path.insert(0, candidate_text)
+
+
+def main() -> int:
+    try:
+        from multi_agent_app.cli import main as cli_main
+    except ModuleNotFoundError as exc:
+        if exc.name != "multi_agent_app":
+            raise
+        _try_bootstrap_editable_path()
+        from multi_agent_app.cli import main as cli_main
+
+    cli_main()
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
