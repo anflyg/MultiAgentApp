@@ -78,12 +78,15 @@ class MultiAgentTUI(App[None]):
         self._selected_question_id: str | None = None
         self._active_workspace_id: str | None = None
 
+    def _workspace_select_widget(self) -> Select:
+        return Select([], prompt="Select workspace", id="workspace-select", allow_blank=True)
+
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
         with Horizontal(id="root"):
             with Vertical(id="left"):
                 yield Static("", id="workspace-banner")
-                yield Select([], prompt="Select workspace", id="workspace-select", allow_blank=False)
+                yield self._workspace_select_widget()
                 with Horizontal(id="workspace-actions"):
                     yield Input(placeholder="New workspace name", id="workspace-name")
                     yield Input(placeholder="Description", id="workspace-description")

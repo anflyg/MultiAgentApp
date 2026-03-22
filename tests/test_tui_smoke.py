@@ -13,6 +13,15 @@ def test_tui_smoke_import_and_init():
     assert hasattr(app, "_render_question_analysis")
 
 
+def test_tui_workspace_select_allows_blank_during_initial_load():
+    pytest.importorskip("textual")
+    from multi_agent_app.tui import MultiAgentTUI
+
+    app = MultiAgentTUI(db_path=":memory:")
+    workspace_select = app._workspace_select_widget()
+    assert workspace_select._allow_blank is True
+
+
 def test_tui_build_question_detail_texts_uses_sections_when_available():
     pytest.importorskip("textual")
     from multi_agent_app.tui import MultiAgentTUI
