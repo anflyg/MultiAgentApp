@@ -1,0 +1,32 @@
+{
+  "default_db_path": "vd_skarp.db",
+  "default_session_name": "VD Session",
+  "default_task_description": "Ask a leadership question",
+  "default_agent_name": "writer",
+
+  "llm_provider": "gemini",
+  "gemini_model": "gemini-2.0-flash",
+  "gemini_api_key": "DIN_GEMINI_NYCKEL",
+
+  "openai_model": "gpt-4o-mini",
+  "openai_api_key": "",
+
+  "role_llm_overrides": {
+    "strateg": {
+      "provider": "gemini",
+      "model": "gemini-2.0-flash"
+    },
+    "analyst": {
+      "provider": "gemini",
+      "model": "gemini-2.0-flash"
+    },
+    "operator": {
+      "provider": "gemini",
+      "model": "gemini-2.0-flash"
+    },
+    "governance": {
+      "provider": "gemini",
+      "model": "gemini-2.0-flash"
+    }
+  }
+}
