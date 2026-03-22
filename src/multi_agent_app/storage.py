@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 from typing import Iterable, List, Optional
 
 from . import models
+from .memory_core import SocratesMemory
 
 DEFAULT_WORKSPACE_NAME = "Default"
 DEFAULT_WORKSPACE_DESCRIPTION = "Default workspace for uncategorized work."
@@ -214,6 +215,24 @@ class Storage:
                 optional_note TEXT,
                 created_at TEXT NOT NULL,
                 FOREIGN KEY(question_id) REFERENCES panel_questions(id)
+            );
+            CREATE TABLE IF NOT EXISTS socrates_memories (
+                id TEXT PRIMARY KEY,
+                workspace_id TEXT NOT NULL,
+                title TEXT NOT NULL,
+                summary TEXT NOT NULL DEFAULT '',
+                memory_type TEXT NOT NULL DEFAULT 'general',
+                status TEXT NOT NULL DEFAULT 'active',
+                decision_text TEXT,
+                assumptions TEXT NOT NULL DEFAULT '[]',
+                risks TEXT NOT NULL DEFAULT '[]',
+                triggers TEXT NOT NULL DEFAULT '[]',
+                relations TEXT NOT NULL DEFAULT '[]',
+                sources TEXT NOT NULL DEFAULT '[]',
+                revision_notes TEXT NOT NULL DEFAULT '[]',
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                FOREIGN KEY(workspace_id) REFERENCES workspaces(id)
             );
             """
         )
@@ -1395,6 +1414,79 @@ class Storage:
             task_id=row["task_id"],
             content=row["content"],
             created_at=_from_iso(row["created_at"]),
+        )
+
+    def save_socrates_memory(self, memory: SocratesMemory) -> None:
+        self._conn.execute(
+            """
+            INSERT OR REPLACE INTO socrates_memories (
+                id, workspace_id, title, summary, memory_type, status, decision_text,
+                assumptions, risks, triggers, relations, sources, revision_notes,
+                created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                memory.id,
+                memory.workspace_id,
+                memory.title,
+                memory.summary,
+                memory.memory_type,
+                memory.status,
+                memory.decision_text,
+                json.dumps(memory.assumptions),
+                json.dumps(memory.risks),
+                json.dumps(memory.triggers),
+                json.dumps(memory.relations),
+                json.dumps(memory.sources),
+                json.dumps(memory.revision_notes),
+                _to_iso(memory.created_at),
+                _to_iso(memory.updated_at),
+            ),
+        )
+        self._conn.commit()
+
+    def get_socrates_memory(self, memory_id: str) -> SocratesMemory | None:
+        row = self._conn.execute(
+            "SELECT * FROM socrates_memories WHERE id = ?",
+            (memory_id,),
+        ).fetchone()
+        if row is None:
+            return None
+        return self._socrates_memory_from_row(row)
+
+    def list_socrates_memories(
+        self,
+        *,
+        workspace_id: str | None = None,
+        limit: int = 50,
+    ) -> list[SocratesMemory]:
+        query = "SELECT * FROM socrates_memories"
+        params: list[object] = []
+        if workspace_id:
+            query += " WHERE workspace_id = ?"
+            params.append(workspace_id)
+        query += " ORDER BY updated_at DESC, created_at DESC LIMIT ?"
+        params.append(limit)
+        rows = self._conn.execute(query, tuple(params)).fetchall()
+        return [self._socrates_memory_from_row(row) for row in rows]
+
+    def _socrates_memory_from_row(self, row: sqlite3.Row) -> SocratesMemory:
+        return SocratesMemory(
+            id=row["id"],
+            workspace_id=row["workspace_id"],
+            title=row["title"],
+            summary=row["summary"],
+            memory_type=row["memory_type"],
+            status=row["status"],
+            decision_text=row["decision_text"],
+            assumptions=json.loads(row["assumptions"]) if row["assumptions"] else [],
+            risks=json.loads(row["risks"]) if row["risks"] else [],
+            triggers=json.loads(row["triggers"]) if row["triggers"] else [],
+            relations=json.loads(row["relations"]) if row["relations"] else [],
+            sources=json.loads(row["sources"]) if row["sources"] else [],
+            revision_notes=json.loads(row["revision_notes"]) if row["revision_notes"] else [],
+            created_at=_from_iso(row["created_at"]),
+            updated_at=_from_iso(row["updated_at"]),
         )
 
     def close(self) -> None:

@@ -5,6 +5,7 @@ from uuid import uuid4
 import pytest
 
 from multi_agent_app import models
+from multi_agent_app.memory_core import SocratesMemory
 from multi_agent_app.storage import Storage
 
 
@@ -487,5 +488,56 @@ def test_storage_reasoning_items_migrate_memory_level_default(tmp_path):
         items = storage.list_reasoning_items_for_question("Q-legacy")
         assert len(items) == 1
         assert items[0].memory_level == "private_context"
+    finally:
+        storage.close()
+
+
+def test_storage_save_and_list_socrates_memory_roundtrip():
+    storage = Storage(db_path=":memory:")
+    try:
+        ws_a = storage.create_workspace(name="Strategi", description="Strategy scope")
+        ws_b = storage.create_workspace(name="Ekonomi", description="Finance scope")
+        memory = SocratesMemory(
+            workspace_id=ws_a.id,
+            title="Expansion gate decision memory",
+            summary="Keep expansion paused until margin recovers.",
+            memory_type="leadership_decision",
+            status="active",
+            decision_text="Pause expansion in market X until two stable quarters.",
+            assumptions=["Gross margin can recover within two quarters."],
+            risks=["Lost market momentum if pause is prolonged."],
+            triggers=["Margin under target for two consecutive months."],
+            relations=[{"type": "supports", "target_id": "policy-2026"}],
+            sources=[{"kind": "meeting_note", "ref": "board-2026-03-21"}],
+            revision_notes=["Initial memory capture from pilot."],
+        )
+        storage.save_socrates_memory(memory)
+
+        loaded = storage.get_socrates_memory(memory.id)
+        assert loaded is not None
+        assert loaded.id == memory.id
+        assert loaded.workspace_id == ws_a.id
+        assert loaded.title == "Expansion gate decision memory"
+        assert loaded.memory_type == "leadership_decision"
+        assert loaded.assumptions == ["Gross margin can recover within two quarters."]
+        assert loaded.risks == ["Lost market momentum if pause is prolonged."]
+        assert loaded.relations == [{"type": "supports", "target_id": "policy-2026"}]
+        assert loaded.sources == [{"kind": "meeting_note", "ref": "board-2026-03-21"}]
+
+        other = SocratesMemory(
+            workspace_id=ws_b.id,
+            title="Liquidity safety memory",
+            summary="Keep runway discipline at 12 months.",
+        )
+        storage.save_socrates_memory(other)
+
+        scoped = storage.list_socrates_memories(workspace_id=ws_a.id, limit=10)
+        assert len(scoped) == 1
+        assert scoped[0].id == memory.id
+
+        unscoped = storage.list_socrates_memories(limit=10)
+        ids = {item.id for item in unscoped}
+        assert memory.id in ids
+        assert other.id in ids
     finally:
         storage.close()
