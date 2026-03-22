@@ -252,3 +252,14 @@ class ExecutiveQuestionAnalysis(BaseModel):
     tensions: list[str] = Field(default_factory=list)
     decision_status_assessment: dict[str, object] = Field(default_factory=dict)
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+class PilotFeedback(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    question_id: str
+    helpfulness: Literal["helpful", "partial", "not_helpful"]
+    length: Literal["short", "good", "long"]
+    context_fit: Literal["clear", "unclear"]
+    optional_note: str | None = None
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))

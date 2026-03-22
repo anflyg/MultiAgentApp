@@ -1278,6 +1278,62 @@ def list_panel_questions(
         storage.close()
 
 
+def save_pilot_feedback(
+    db_path: str,
+    *,
+    question_id: str,
+    helpfulness: str,
+    length: str,
+    context_fit: str,
+    optional_note: str | None = None,
+) -> models.PilotFeedback:
+    storage = Storage(db_path=db_path)
+    try:
+        question = storage.get_panel_question(question_id)
+        if question is None:
+            raise ValueError(f"Panel question '{question_id}' was not found")
+        feedback = models.PilotFeedback(
+            question_id=question_id,
+            helpfulness=helpfulness,  # type: ignore[arg-type]
+            length=length,  # type: ignore[arg-type]
+            context_fit=context_fit,  # type: ignore[arg-type]
+            optional_note=optional_note.strip() if optional_note else None,
+        )
+        storage.save_pilot_feedback(feedback)
+        return feedback
+    finally:
+        storage.close()
+
+
+def list_pilot_report(
+    db_path: str,
+    *,
+    workspace_id: str | None = None,
+    limit: int = 20,
+    include_unrated: bool = False,
+) -> list[dict[str, object]]:
+    storage = Storage(db_path=db_path)
+    try:
+        scoped_workspace = workspace_id or storage.get_active_workspace().id
+        questions = storage.list_panel_questions(workspace_id=scoped_workspace, limit=limit)
+        rows: list[dict[str, object]] = []
+        for question in questions:
+            analysis = storage.get_panel_question_analysis(question.id)
+            feedback = storage.get_pilot_feedback(question.id)
+            if not include_unrated and feedback is None:
+                continue
+            rows.append(
+                {
+                    "question": question,
+                    "analysis": analysis,
+                    "feedback": feedback,
+                }
+            )
+        return rows
+    finally:
+        storage.close()
+
+
 def _truncate_question(text: str, max_length: int = 90) -> str:
     compact = " ".join(text.strip().split())
     if len(compact) <= max_length:
@@ -1732,6 +1788,52 @@ def _build_parser(config: AppConfig, config_path: str | None = None) -> argparse
     ask_panel_parser.add_argument("--topic", required=True, help="Decision topic.")
     ask_panel_parser.add_argument("--session-id", help="Optional session scope.")
     ask_panel_parser.add_argument("--workspace-id", help="Optional workspace override.")
+
+    pilot_ask_parser = subparsers.add_parser(
+        "pilot-ask",
+        help="Ask one real pilot question and print a compact leadership summary.",
+    )
+    pilot_ask_parser.add_argument("--question", required=True, help="Leadership pilot question.")
+    pilot_ask_parser.add_argument("--topic", required=True, help="Decision topic.")
+    pilot_ask_parser.add_argument("--session-id", help="Optional session scope.")
+    pilot_ask_parser.add_argument("--workspace-id", help="Optional workspace override.")
+
+    pilot_feedback_parser = subparsers.add_parser(
+        "pilot-feedback",
+        help="Record quick pilot feedback for a saved panel question.",
+    )
+    pilot_feedback_parser.add_argument("--question-id", required=True, help="Panel question id.")
+    pilot_feedback_parser.add_argument(
+        "--helpfulness",
+        required=True,
+        choices=["helpful", "partial", "not_helpful"],
+        help="How helpful the support was.",
+    )
+    pilot_feedback_parser.add_argument(
+        "--length",
+        required=True,
+        choices=["short", "good", "long"],
+        help="How the output length felt.",
+    )
+    pilot_feedback_parser.add_argument(
+        "--context-fit",
+        required=True,
+        choices=["clear", "unclear"],
+        help="Whether workspace/decision context felt right.",
+    )
+    pilot_feedback_parser.add_argument("--note", help="Optional short feedback note.")
+
+    pilot_report_parser = subparsers.add_parser(
+        "pilot-report",
+        help="List recent pilot questions with recommendation and feedback.",
+    )
+    pilot_report_parser.add_argument("--workspace-id", help="Optional workspace id override.")
+    pilot_report_parser.add_argument("--limit", type=int, default=20, help="Maximum number of rows.")
+    pilot_report_parser.add_argument(
+        "--include-unrated",
+        action="store_true",
+        help="Include questions without recorded feedback.",
+    )
 
     show_panel_question_parser = subparsers.add_parser(
         "show-panel-question", help="Show a previously stored panel question and analysis."
@@ -2301,6 +2403,98 @@ def main() -> None:
             raise SystemExit(1) from exc
         print(f"Dismissed decision suggestion: {suggestion.id}")
         print(f"Suggestion status: {suggestion.status}")
+        return
+
+    if args.command == "pilot-ask":
+        try:
+            panel_question, context, assessment, _, combined, likely_new_decision, next_step = ask_decision_panel(
+                db_path=args.db_path,
+                question=args.question,
+                topic=args.topic,
+                session_id=args.session_id,
+                workspace_id=args.workspace_id,
+            )
+        except ValueError as exc:
+            print(f"Pilot ask failed: {exc}")
+            raise SystemExit(1) from exc
+        print("Pilot question saved.")
+        print(f"Question id: {panel_question.id}")
+        print(f"Workspace: {panel_question.workspace_id or '-'}")
+        print(f"Context snapshot: {_context_signal_line(context)}")
+        print(f"Assessment: {alignment_label(assessment.alignment)}")
+        print(f"Recommendation: {combined}")
+        print(f"Action now: {next_step}")
+        print(f"New decision likely?: {likelihood_label(likely_new_decision)}")
+        print("Log quick feedback:")
+        print(
+            f"- python src/main.py --db-path {args.db_path} pilot-feedback "
+            f"--question-id {panel_question.id} --helpfulness partial --length good --context-fit clear"
+        )
+        return
+
+    if args.command == "pilot-feedback":
+        try:
+            feedback = save_pilot_feedback(
+                args.db_path,
+                question_id=args.question_id,
+                helpfulness=args.helpfulness,
+                length=args.length,
+                context_fit=args.context_fit,
+                optional_note=args.note,
+            )
+        except ValueError as exc:
+            print(f"Pilot feedback failed: {exc}")
+            raise SystemExit(1) from exc
+        print(f"Pilot feedback saved for question: {feedback.question_id}")
+        print(f"helpfulness={feedback.helpfulness} length={feedback.length} context_fit={feedback.context_fit}")
+        print(f"note={feedback.optional_note or '-'}")
+        return
+
+    if args.command == "pilot-report":
+        selected_workspace_id = args.workspace_id or active_workspace.id
+        rows = list_pilot_report(
+            args.db_path,
+            workspace_id=selected_workspace_id,
+            limit=args.limit,
+            include_unrated=args.include_unrated,
+        )
+        storage = Storage(db_path=args.db_path)
+        try:
+            scope_workspace = storage.get_workspace(selected_workspace_id)
+        finally:
+            storage.close()
+        scope_name = scope_workspace.name if scope_workspace else selected_workspace_id
+        print(
+            f"Pilot report (workspace={scope_name}, rows={len(rows)}, include_unrated={'yes' if args.include_unrated else 'no'})"
+        )
+        for row in rows:
+            question = row["question"]
+            analysis = row["analysis"]
+            feedback = row["feedback"]
+            recommendation = analysis.combined_recommendation if analysis is not None else "-"
+            next_step_text = analysis.suggested_next_step if analysis is not None else "-"
+            likely_new = (
+                likelihood_label(analysis.likely_requires_new_decision)
+                if analysis is not None
+                else "Probably"
+            )
+            print(
+                f"- {question.id} | topic={question.topic} | "
+                f"question={_truncate_question(question.question_text, max_length=70)}"
+            )
+            print(f"  recommendation: {recommendation}")
+            print(f"  action_now: {next_step_text}")
+            print(f"  new_decision_likely: {likely_new}")
+            if feedback is None:
+                print("  feedback: not logged")
+            else:
+                print(
+                    "  feedback: "
+                    f"helpfulness={feedback.helpfulness}, length={feedback.length}, "
+                    f"context_fit={feedback.context_fit}, note={feedback.optional_note or '-'}"
+                )
+        if not rows:
+            print("No pilot rows found for this scope yet.")
         return
 
     if args.command == "ask-decision-panel":

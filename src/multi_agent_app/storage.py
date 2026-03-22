@@ -206,6 +206,15 @@ class Storage:
                 FOREIGN KEY(question_id) REFERENCES panel_questions(id),
                 FOREIGN KEY(decision_id) REFERENCES decisions(id)
             );
+            CREATE TABLE IF NOT EXISTS pilot_feedback (
+                question_id TEXT PRIMARY KEY,
+                helpfulness TEXT NOT NULL,
+                length TEXT NOT NULL,
+                context_fit TEXT NOT NULL,
+                optional_note TEXT,
+                created_at TEXT NOT NULL,
+                FOREIGN KEY(question_id) REFERENCES panel_questions(id)
+            );
             """
         )
         self._ensure_column("sessions", "workspace_id", "TEXT")
@@ -1175,6 +1184,40 @@ class Storage:
             "combined_recommendation": analysis.combined_recommendation,
             "decision_status_assessment": analysis.decision_status_assessment,
         }
+
+    def save_pilot_feedback(self, feedback: models.PilotFeedback) -> None:
+        self._conn.execute(
+            """
+            INSERT OR REPLACE INTO pilot_feedback (
+                question_id, helpfulness, length, context_fit, optional_note, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (
+                feedback.question_id,
+                feedback.helpfulness,
+                feedback.length,
+                feedback.context_fit,
+                feedback.optional_note,
+                _to_iso(feedback.created_at),
+            ),
+        )
+        self._conn.commit()
+
+    def get_pilot_feedback(self, question_id: str) -> models.PilotFeedback | None:
+        row = self._conn.execute(
+            "SELECT * FROM pilot_feedback WHERE question_id = ?",
+            (question_id,),
+        ).fetchone()
+        if row is None:
+            return None
+        return models.PilotFeedback(
+            question_id=row["question_id"],
+            helpfulness=row["helpfulness"],
+            length=row["length"],
+            context_fit=row["context_fit"],
+            optional_note=row["optional_note"],
+            created_at=_from_iso(row["created_at"]),
+        )
 
     def add_decision_candidate(self, candidate: models.DecisionCandidate) -> None:
         self._conn.execute(

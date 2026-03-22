@@ -415,6 +415,37 @@ def test_storage_can_rename_workspace_and_keep_active_workspace_id():
         storage.close()
 
 
+def test_storage_save_and_get_pilot_feedback():
+    storage = Storage(db_path=":memory:")
+    try:
+        workspace = storage.get_active_workspace()
+        session = models.Session(name="Pilot Session", workspace_id=workspace.id)
+        storage.add_session(session)
+        question = models.ExecutiveQuestion(
+            question_text="Should we pause expansion now?",
+            topic="Expansion",
+            session_id=session.id,
+            workspace_id=workspace.id,
+        )
+        storage.add_panel_question(question)
+        feedback = models.PilotFeedback(
+            question_id=question.id,
+            helpfulness="partial",
+            length="good",
+            context_fit="clear",
+            optional_note="Needs slightly stronger action wording.",
+        )
+        storage.save_pilot_feedback(feedback)
+        loaded = storage.get_pilot_feedback(question.id)
+        assert loaded is not None
+        assert loaded.helpfulness == "partial"
+        assert loaded.length == "good"
+        assert loaded.context_fit == "clear"
+        assert "stronger action" in (loaded.optional_note or "")
+    finally:
+        storage.close()
+
+
 def test_storage_reasoning_items_migrate_memory_level_default(tmp_path):
     db_path = tmp_path / "legacy_reasoning_visibility.db"
     conn = sqlite3.connect(db_path)

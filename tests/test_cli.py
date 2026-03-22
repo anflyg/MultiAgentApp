@@ -861,6 +861,96 @@ def test_vd_scenario_setup_function_and_command(tmp_path, capsys, monkeypatch):
     assert "Suggested verification commands:" in output
 
 
+def test_cli_pilot_feedback_loop(tmp_path, capsys, monkeypatch):
+    db_path = tmp_path / "pilot_loop.db"
+    session = create_session(str(db_path), "Pilot Loop Session")
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "main.py",
+            "--db-path",
+            str(db_path),
+            "create-decision",
+            "--session-id",
+            session.id,
+            "--title",
+            "Expansion guardrail",
+            "--topic",
+            "Expansion",
+            "--text",
+            "Pause expansion until margin stabilizes.",
+        ],
+    )
+    main()
+    capsys.readouterr()
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "main.py",
+            "--db-path",
+            str(db_path),
+            "pilot-ask",
+            "--topic",
+            "Expansion",
+            "--question",
+            "Ska vi pausa expansion i marknad X nu?",
+        ],
+    )
+    main()
+    ask_output = capsys.readouterr().out
+    assert "Pilot question saved." in ask_output
+    question_id = next(
+        line.split(": ", 1)[1].strip()
+        for line in ask_output.splitlines()
+        if line.startswith("Question id:")
+    )
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "main.py",
+            "--db-path",
+            str(db_path),
+            "pilot-feedback",
+            "--question-id",
+            question_id,
+            "--helpfulness",
+            "helpful",
+            "--length",
+            "good",
+            "--context-fit",
+            "clear",
+            "--note",
+            "Bra, tydligt nästa steg.",
+        ],
+    )
+    main()
+    feedback_output = capsys.readouterr().out
+    assert "Pilot feedback saved" in feedback_output
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "main.py",
+            "--db-path",
+            str(db_path),
+            "pilot-report",
+            "--limit",
+            "5",
+        ],
+    )
+    main()
+    report_output = capsys.readouterr().out
+    assert "Pilot report" in report_output
+    assert question_id in report_output
+    assert "helpfulness=helpful" in report_output
+
+
 def test_cli_default_run_prints_onboarding_tip(tmp_path, capsys, monkeypatch):
     db_path = tmp_path / "default_cli_onboarding.db"
     monkeypatch.setattr(
