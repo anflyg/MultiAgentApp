@@ -7,6 +7,7 @@ from typing import Dict, List
 
 from . import models
 from .agents import BaseAgent, PlannerAgent, ReviewerAgent, WriterAgent
+from .config import AppConfig, ensure_app_config, load_app_config, write_app_config
 from .llm import (
     LLMProvider,
     apply_role_llm_overrides,
@@ -1285,16 +1286,41 @@ def alpha_demo_setup(
     }
 
 
-def _build_parser() -> argparse.ArgumentParser:
+def _build_parser(config: AppConfig, config_path: str | None = None) -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="MultiAgentApp CLI.")
-    parser.add_argument("--db-path", default="multi_agent.db", help="Path to SQLite database file.")
-    parser.add_argument("--session-name", default="Demo Session", help="Session name for demo flow.")
+    parser.add_argument("--config-path", default=config_path, help="Path to user config file.")
     parser.add_argument(
-        "--task", dest="task_description", default="Write a welcome message", help="Task description for demo flow."
+        "--db-path",
+        default=config.default_db_path,
+        help="Path to SQLite database file.",
     )
-    parser.add_argument("--agent", dest="agent_name", default="writer", help="Agent for demo flow.")
+    parser.add_argument(
+        "--session-name",
+        default=config.default_session_name,
+        help="Session name for demo flow.",
+    )
+    parser.add_argument(
+        "--task",
+        dest="task_description",
+        default=config.default_task_description,
+        help="Task description for demo flow.",
+    )
+    parser.add_argument(
+        "--agent",
+        dest="agent_name",
+        default=config.default_agent_name,
+        help="Agent for demo flow.",
+    )
 
     subparsers = parser.add_subparsers(dest="command")
+
+    subparsers.add_parser("config-show", help="Show resolved user config and current values.")
+    config_init_parser = subparsers.add_parser("config-init", help="Create config file with defaults if missing.")
+    config_init_parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Overwrite config file if it already exists.",
+    )
 
     create_workspace_parser = subparsers.add_parser("workspace-create", help="Create a new workspace.")
     create_workspace_parser.add_argument("--name", required=True, help="Workspace name.")
@@ -1491,8 +1517,40 @@ def _build_parser() -> argparse.ArgumentParser:
 
 
 def main() -> None:
-    parser = _build_parser()
+    bootstrap_parser = argparse.ArgumentParser(add_help=False)
+    bootstrap_parser.add_argument("--config-path", default=None)
+    bootstrap_args, _ = bootstrap_parser.parse_known_args()
+    app_config, resolved_config_path = load_app_config(bootstrap_args.config_path)
+
+    parser = _build_parser(
+        config=app_config,
+        config_path=str(resolved_config_path),
+    )
     args = parser.parse_args()
+
+    if args.command == "config-init":
+        if resolved_config_path.exists() and not args.force:
+            print(f"Config already exists: {resolved_config_path}")
+            print("Use --force to overwrite.")
+            return
+        path = write_app_config(app_config, config_path=str(resolved_config_path))
+        print(f"Config written: {path}")
+        print(f"default_db_path: {app_config.default_db_path}")
+        print(f"default_session_name: {app_config.default_session_name}")
+        print(f"default_task_description: {app_config.default_task_description}")
+        print(f"default_agent_name: {app_config.default_agent_name}")
+        return
+
+    if args.command == "config-show":
+        print(f"Config path: {resolved_config_path}")
+        print(f"Config file exists: {'yes' if resolved_config_path.exists() else 'no'}")
+        print(f"default_db_path: {app_config.default_db_path}")
+        print(f"default_session_name: {app_config.default_session_name}")
+        print(f"default_task_description: {app_config.default_task_description}")
+        print(f"default_agent_name: {app_config.default_agent_name}")
+        return
+
+    app_config, resolved_config_path, _ = ensure_app_config(args.config_path)
 
     if args.command == "workspace-create":
         try:

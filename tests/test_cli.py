@@ -177,6 +177,53 @@ def test_cli_workspace_create_use_and_status(tmp_path, capsys, monkeypatch):
     assert "Finance" in list_output
 
 
+def test_cli_config_init_and_show(tmp_path, capsys, monkeypatch):
+    db_path = tmp_path / "from_config.db"
+    config_path = tmp_path / "app_config.json"
+    config_path.write_text(
+        "{\n"
+        f'  "default_db_path": "{db_path}",\n'
+        '  "default_session_name": "Cfg Session",\n'
+        '  "default_task_description": "Cfg Task",\n'
+        '  "default_agent_name": "planner"\n'
+        "}\n",
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["main.py", "--config-path", str(config_path), "config-show"],
+    )
+    main()
+    show_output = capsys.readouterr().out
+    assert "Config path:" in show_output
+    assert str(config_path) in show_output
+    assert f"default_db_path: {db_path}" in show_output
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["main.py", "--config-path", str(config_path), "workspace-status"],
+    )
+    main()
+    capsys.readouterr()
+    assert db_path.exists()
+
+
+def test_cli_config_init_creates_file(tmp_path, capsys, monkeypatch):
+    config_path = tmp_path / "new_config.json"
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["main.py", "--config-path", str(config_path), "config-init"],
+    )
+    main()
+    output = capsys.readouterr().out
+    assert "Config written:" in output
+    assert config_path.exists()
+
+
 def test_cli_run_task_command(tmp_path, capsys, monkeypatch):
     db_path = tmp_path / "run_task_cli.db"
     session = create_session(str(db_path), "Run Task Session")

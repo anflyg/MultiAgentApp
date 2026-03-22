@@ -9,6 +9,7 @@ from . import models
 
 DEFAULT_WORKSPACE_NAME = "Default"
 DEFAULT_WORKSPACE_DESCRIPTION = "Default workspace for uncategorized work."
+# Internal runtime state key (not user-facing config).
 ACTIVE_WORKSPACE_STATE_KEY = "active_workspace_id"
 
 

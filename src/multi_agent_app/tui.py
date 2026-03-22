@@ -10,6 +10,7 @@ from textual.widgets import Button, Footer, Header, Input, RichLog, Select, Stat
 from .cli import (
     ask_decision_panel,
 )
+from .config import ensure_app_config, load_app_config
 from .llm import role_generation_mode_label, summarize_fallback_notes, summarize_role_provider_map
 from .panel import alignment_label, build_panel_outcome, decision_mode_label, likelihood_label
 from .storage import Storage
@@ -707,9 +708,19 @@ def run_tui(db_path: str = "multi_agent.db") -> None:
 
 
 def main() -> None:
+    bootstrap_parser = argparse.ArgumentParser(add_help=False)
+    bootstrap_parser.add_argument("--config-path", default=None)
+    bootstrap_args, _ = bootstrap_parser.parse_known_args()
+    config, config_path = load_app_config(bootstrap_args.config_path)
     parser = argparse.ArgumentParser(description="Run MultiAgentApp Textual UI.")
-    parser.add_argument("--db-path", default="multi_agent.db", help="Path to SQLite database file.")
+    parser.add_argument("--config-path", default=str(config_path), help="Path to user config file.")
+    parser.add_argument(
+        "--db-path",
+        default=config.default_db_path,
+        help="Path to SQLite database file.",
+    )
     args = parser.parse_args()
+    ensure_app_config(args.config_path)
     run_tui(db_path=args.db_path)
 
 
