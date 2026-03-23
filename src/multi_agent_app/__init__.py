@@ -8,6 +8,7 @@ __all__ = [
     "llm",
     "memory_core",
     "memory_retrieval",
+    "memory_orientation",
     "config",
     "cli",
     "tui",
