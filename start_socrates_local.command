@@ -60,6 +60,10 @@ sys.exit(0 if data.get("status") == "ok" else 1)
 PY
 }
 
+port_listener_pids() {
+  lsof -t -nP -iTCP:"$PORT" -sTCP:LISTEN 2>/dev/null || true
+}
+
 discover_ngrok_public_url() {
   local tunnels_json
   tunnels_json="$(curl -fsS http://127.0.0.1:4040/api/tunnels 2>/dev/null || true)"
@@ -112,6 +116,13 @@ if [ ! -f "$DB_PATH" ]; then
   touch "$DB_PATH"
 fi
 
+EXISTING_PORT_PIDS="$(port_listener_pids)"
+if [ -n "$EXISTING_PORT_PIDS" ]; then
+  echo "Fel: port $PORT används redan av process(er): $EXISTING_PORT_PIDS"
+  echo "Kör ./stop_socrates_local.command eller frigör porten innan start."
+  exit 1
+fi
+
 echo "Initierar databas om det behövs..."
 python - <<PY
 from multi_agent_app.storage import Storage
@@ -124,9 +135,21 @@ echo "Startar lokalt memory API..."
 nohup python -m multi_agent_app.cli --db-path "$DB_PATH" serve-memory-api --host "$HOST" --port "$PORT" >"$API_LOG" 2>&1 &
 API_PID=$!
 echo "$API_PID" > "$API_PID_FILE"
+sleep 0.3
+
+if ! kill -0 "$API_PID" >/dev/null 2>&1; then
+  echo "Fel: API-processen avslutades direkt efter start."
+  echo "Se logg: $API_LOG"
+  exit 1
+fi
 
 echo "Väntar på lokalt API..."
 for _ in $(seq 1 20); do
+  if ! kill -0 "$API_PID" >/dev/null 2>&1; then
+    echo "Fel: API-processen avslutades under uppstart."
+    echo "Se logg: $API_LOG"
+    exit 1
+  fi
   if health_status_ok "http://$HOST:$PORT"; then
     echo "Lokalt API svarar."
     break
