@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import sqlite3
 from collections import Counter
@@ -23,6 +24,7 @@ from .llm import (
     summarize_fallback_notes,
     summarize_role_provider_map,
 )
+from .memory_orientation import orient_question_to_memory_by_db
 from .orchestrator import OrchestrationError, Orchestrator
 from .panel import (
     active_advisor_roles,
@@ -1952,6 +1954,13 @@ def _build_parser(config: AppConfig, config_path: str | None = None) -> argparse
     list_panel_questions_parser.add_argument("--workspace-id", help="Optional workspace id filter.")
     list_panel_questions_parser.add_argument("--topic", help="Optional topic filter.")
     list_panel_questions_parser.add_argument("--limit", type=int, default=20, help="Maximum number of questions.")
+    memory_orient_parser = subparsers.add_parser(
+        "memory-orient",
+        help="Run memory orientation for one question before advisory flow.",
+    )
+    memory_orient_parser.add_argument("--question", required=True, help="Question to orient against long-term memory.")
+    memory_orient_parser.add_argument("--workspace-id", help="Optional workspace override.")
+    memory_orient_parser.add_argument("--limit", type=int, default=3, help="Maximum number of top matches.")
 
     alpha_demo_parser = subparsers.add_parser(
         "alpha-demo-setup",
@@ -3043,6 +3052,20 @@ def main() -> None:
                 f"workspace={question.workspace_id or '-'}"
             )
             print(f"  {_truncate_question(question.question_text)}")
+        return
+
+    if args.command == "memory-orient":
+        try:
+            result = orient_question_to_memory_by_db(
+                args.db_path,
+                question=args.question,
+                workspace_id=args.workspace_id,
+                limit=args.limit,
+            )
+        except ValueError as exc:
+            print(f"Memory orientation failed: {exc}")
+            raise SystemExit(1) from exc
+        print(json.dumps(result.model_dump(), indent=2, ensure_ascii=False))
         return
 
     if args.command == "alpha-demo-setup":

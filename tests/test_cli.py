@@ -14,6 +14,7 @@ from multi_agent_app.cli import (
     run_example_flow,
     vd_scenario_setup,
 )
+from multi_agent_app.memory_core import SocratesMemory
 from multi_agent_app.storage import Storage
 
 
@@ -236,6 +237,54 @@ def test_cli_workspace_update_renames_and_updates_description(tmp_path, capsys, 
     main()
     list_output = capsys.readouterr().out
     assert "Revenue planning and growth" in list_output
+
+
+def test_cli_memory_orient_command_returns_orientation_result(tmp_path, capsys, monkeypatch):
+    db_path = tmp_path / "memory_orient_cli.db"
+    storage = Storage(db_path=str(db_path))
+    try:
+        workspace = storage.create_workspace(name="Strategy Memory", description="")
+        storage.set_active_workspace(workspace.id)
+        storage.save_socrates_memory(
+            SocratesMemory(
+                workspace_id=workspace.id,
+                title="Nordic expansion memory",
+                summary="Stepwise expansion in Norway with margin guardrail.",
+                decision_text="Continue expansion only when gross margin remains stable.",
+                assumptions=["Norway remains priority market."],
+            )
+        )
+    finally:
+        storage.close()
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "main.py",
+            "--db-path",
+            str(db_path),
+            "memory-orient",
+            "--workspace-id",
+            workspace.id,
+            "--question",
+            "How should we handle expansion in Norway with margin guardrail next year?",
+            "--limit",
+            "2",
+        ],
+    )
+    main()
+    output = capsys.readouterr().out
+    assert '"question": "How should we handle expansion in Norway with margin guardrail next year?"' in output
+    assert f'"workspace": "{workspace.id}"' in output
+    assert '"top_matches": [' in output
+    assert '"title": "Nordic expansion memory"' in output
+    assert '"memory_belongs": "likely_related"' in output
+    assert (
+        '"novelty_assessment": "existing"' in output
+        or '"novelty_assessment": "partly_new"' in output
+    )
+    assert '"reasoning":' in output
 
 
 def test_cli_config_init_and_show(tmp_path, capsys, monkeypatch):
