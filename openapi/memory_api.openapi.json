@@ -2,19 +2,40 @@
   "openapi": "3.1.0",
   "info": {
     "title": "MultiAgentApp Memory API",
-    "version": "0.1.0",
-    "description": "Thin local API for memory orientation and memory read/search."
+    "version": "0.2.0",
+    "description": "Thin local API for memory orientation and memory read/search. Intended for first Custom GPT Action pilot."
   },
   "servers": [
     {
-      "url": "http://127.0.0.1:8001"
+      "url": "http://127.0.0.1:8001",
+      "description": "Local development server"
+    },
+    {
+      "url": "https://your-tunnel-host.example",
+      "description": "Public HTTPS tunnel URL for ChatGPT Actions"
+    }
+  ],
+  "security": [
+    {
+      "BearerAuth": []
+    }
+  ],
+  "tags": [
+    {
+      "name": "system",
+      "description": "System status endpoints"
+    },
+    {
+      "name": "memory",
+      "description": "Memory orientation and read/search endpoints"
     }
   ],
   "components": {
     "securitySchemes": {
       "BearerAuth": {
         "type": "http",
-        "scheme": "bearer"
+        "scheme": "bearer",
+        "description": "Bearer token from --api-token or MULTI_AGENT_APP_API_TOKEN."
       }
     },
     "schemas": {
@@ -31,7 +52,18 @@
           },
           "db_path": {
             "type": "string",
-            "example": "SocratesTest.db"
+            "example": "./SocratesTest.db"
+          }
+        }
+      },
+      "ErrorResponse": {
+        "type": "object",
+        "required": [
+          "error"
+        ],
+        "properties": {
+          "error": {
+            "type": "string"
           }
         }
       },
@@ -54,7 +86,7 @@
           }
         }
       },
-      "TopMatch": {
+      "OrientationTopMatch": {
         "type": "object",
         "required": [
           "id",
@@ -105,7 +137,7 @@
           "top_matches": {
             "type": "array",
             "items": {
-              "$ref": "#/components/schemas/TopMatch"
+              "$ref": "#/components/schemas/OrientationTopMatch"
             }
           },
           "memory_belongs": {
@@ -129,14 +161,110 @@
           }
         }
       },
-      "MemorySearchRequest": {
+      "MemoryObject": {
         "type": "object",
+        "required": [
+          "id",
+          "workspace_id",
+          "title",
+          "summary",
+          "memory_type",
+          "status",
+          "assumptions",
+          "risks",
+          "triggers",
+          "relations",
+          "sources",
+          "revision_notes",
+          "created_at",
+          "updated_at"
+        ],
         "properties": {
-          "query": {
+          "id": {
             "type": "string"
           },
           "workspace_id": {
             "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "summary": {
+            "type": "string"
+          },
+          "memory_type": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "draft",
+              "archived"
+            ]
+          },
+          "decision_text": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "assumptions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "risks": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "triggers": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "relations": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          },
+          "sources": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          },
+          "revision_notes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "MemorySearchRequest": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "Optional text query. If omitted, endpoint lists workspace memories."
+          },
+          "workspace_id": {
+            "type": "string",
+            "description": "Optional workspace id. Defaults to active workspace."
           },
           "limit": {
             "type": "integer",
@@ -195,32 +323,20 @@
             }
           }
         }
-      },
-      "ErrorResponse": {
-        "type": "object",
-        "required": [
-          "error"
-        ],
-        "properties": {
-          "error": {
-            "type": "string"
-          }
-        }
       }
     }
   },
-  "security": [
-    {
-      "BearerAuth": []
-    }
-  ],
   "paths": {
     "/health": {
       "get": {
+        "tags": [
+          "system"
+        ],
+        "operationId": "getHealth",
         "summary": "Health check",
         "responses": {
           "200": {
-            "description": "OK",
+            "description": "API is healthy",
             "content": {
               "application/json": {
                 "schema": {
@@ -244,6 +360,10 @@
     },
     "/memory/orient": {
       "post": {
+        "tags": [
+          "memory"
+        ],
+        "operationId": "postMemoryOrient",
         "summary": "Orient question against long-term memory",
         "requestBody": {
           "required": true,
@@ -291,6 +411,10 @@
     },
     "/memory/search": {
       "post": {
+        "tags": [
+          "memory"
+        ],
+        "operationId": "postMemorySearch",
         "summary": "Search memory objects in workspace scope",
         "requestBody": {
           "required": false,
@@ -328,6 +452,10 @@
     },
     "/memory/{id}": {
       "get": {
+        "tags": [
+          "memory"
+        ],
+        "operationId": "getMemoryById",
         "summary": "Get one memory object by id",
         "parameters": [
           {
@@ -353,7 +481,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object"
+                  "$ref": "#/components/schemas/MemoryObject"
                 }
               }
             }
