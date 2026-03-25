@@ -1,4 +1,5 @@
 import sys
+import runpy
 
 import pytest
 
@@ -95,3 +96,12 @@ def test_cli_memory_orient_requires_question(tmp_path, monkeypatch):
     )
     with pytest.raises(SystemExit):
         main()
+
+
+def test_cli_module_entrypoint_invokes_main(monkeypatch, capsys):
+    monkeypatch.setattr(sys, "argv", ["multi_agent_app.cli", "--help"])
+    with pytest.raises(SystemExit) as exc:
+        runpy.run_module("multi_agent_app.cli", run_name="__main__")
+    assert exc.value.code == 0
+    output = capsys.readouterr().out
+    assert "serve-memory-api" in output

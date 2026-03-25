@@ -73,3 +73,7 @@ def main() -> None:
         return
 
     parser.print_help()
+
+
+if __name__ == "__main__":
+    main()
