@@ -24,7 +24,7 @@ from .llm import (
     summarize_fallback_notes,
     summarize_role_provider_map,
 )
-from .memory_orientation import orient_question_to_memory_by_db
+from .memory_orientation import orient_question_to_memory, orient_question_to_memory_by_db
 from .orchestrator import OrchestrationError, Orchestrator
 from .panel import (
     active_advisor_roles,
@@ -1100,6 +1100,23 @@ def ask_decision_panel(
             session_id=session_id,
             workspace_id=resolved_workspace_id,
         )
+        try:
+            memory_orientation = orient_question_to_memory(
+                storage,
+                question=normalized_question,
+                workspace_id=resolved_workspace_id,
+                limit=3,
+            ).model_dump()
+        except Exception as exc:  # Keep advisory flow resilient even if orientation fails.
+            memory_orientation = {
+                "question": normalized_question,
+                "workspace": resolved_workspace_id or "-",
+                "top_matches": [],
+                "memory_belongs": "no_clear_match",
+                "novelty_assessment": "new",
+                "reasoning": f"orientation_unavailable:{exc.__class__.__name__}",
+            }
+        context["memory_orientation"] = memory_orientation
         assessment = assess_question_against_active_decisions(
             normalized_question, context["active_decisions"]
         )
@@ -1231,6 +1248,7 @@ def ask_decision_panel(
                 panel_outcome=panel_outcome,
                 suggested_formal_step=next_step,
                 llm_status=llm_status,
+                memory_orientation=memory_orientation,
             )
         storage.add_panel_question_analysis(
             models.ExecutiveQuestionAnalysis(

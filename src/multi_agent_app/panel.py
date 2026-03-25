@@ -594,13 +594,17 @@ def question_interpretation(
 
 
 def relevant_context_summary(context: PanelContext) -> dict[str, object]:
-    return {
+    summary = {
         "active_decision_ids": [decision.id for decision in context["active_decisions"]],
         "historical_decision_ids": [decision.id for decision in context["historical_decisions"]],
         "open_candidate_ids": [candidate.id for candidate in context["open_candidates"]],
         "open_suggestion_ids": [suggestion.id for suggestion in context["open_suggestions"]],
         "decision_link_ids": [link.id for link in context["decision_links"]],
     }
+    memory_orientation = context.get("memory_orientation")
+    if isinstance(memory_orientation, dict):
+        summary["memory_orientation"] = memory_orientation
+    return summary
 
 
 def build_panel_sections(
@@ -612,6 +616,7 @@ def build_panel_sections(
     panel_outcome: models.PanelOutcome,
     suggested_formal_step: str,
     llm_status: dict[str, object] | None = None,
+    memory_orientation: dict[str, object] | None = None,
 ) -> PanelSections:
     decision_status_assessment = {
         "decision_mode": panel_outcome.decision_mode,
@@ -625,6 +630,11 @@ def build_panel_sections(
     }
     if llm_status:
         decision_status_assessment["llm_status"] = llm_status
+    if memory_orientation:
+        decision_status_assessment["memory_orientation"] = memory_orientation
+
+    if isinstance(memory_orientation, dict):
+        context["memory_orientation"] = memory_orientation
 
     return {
         "question_interpretation": question_interpretation(question, context, assessment),

@@ -19,6 +19,7 @@ from multi_agent_app.panel import (
     route_active_advisor_roles,
     suggested_next_step,
 )
+from multi_agent_app.memory_core import SocratesMemory
 from multi_agent_app.storage import Storage
 
 
@@ -239,6 +240,70 @@ def test_ask_decision_panel_with_relevant_decisions_stores_question_and_response
         )
     finally:
         storage.close()
+
+
+def test_ask_decision_panel_carries_memory_orientation_in_context_and_analysis(tmp_path):
+    db_path = tmp_path / "panel_with_memory_orientation.db"
+    session = create_session(str(db_path), "Panel With Memory Orientation")
+    create_decision(str(db_path), session.id, "Direction", "Expansion", "Use staged expansion.")
+    storage = Storage(db_path=str(db_path))
+    try:
+        workspace = storage.get_active_workspace()
+        storage.save_socrates_memory(
+            SocratesMemory(
+                workspace_id=workspace.id,
+                title="Nordic expansion memory",
+                summary="Prioritize Norway expansion with margin guardrail.",
+                decision_text="Continue only when margin stays stable.",
+            )
+        )
+    finally:
+        storage.close()
+
+    question, context, _, _, _, _, _ = ask_decision_panel(
+        db_path=str(db_path),
+        question="How should we handle Norway expansion with margin guardrail next year?",
+        topic="Expansion",
+    )
+    assert "memory_orientation" in context
+    orientation = context["memory_orientation"]
+    assert isinstance(orientation, dict)
+    assert orientation.get("top_matches")
+
+    storage = Storage(db_path=str(db_path))
+    try:
+        analysis = storage.get_panel_question_analysis(question.id)
+        assert analysis is not None
+        relevant_context = analysis.relevant_context
+        assert "memory_orientation" in relevant_context
+        assessment_payload = analysis.decision_status_assessment
+        assert "memory_orientation" in assessment_payload
+    finally:
+        storage.close()
+
+
+def test_ask_decision_panel_continues_when_memory_orientation_has_no_match(tmp_path):
+    db_path = tmp_path / "panel_with_no_memory_match.db"
+    create_session(str(db_path), "Panel With No Memory Match")
+
+    _, context, assessment, responses, combined, likely_new_decision, next_step = ask_decision_panel(
+        db_path=str(db_path),
+        question="How should we structure CFO compensation and HR governance next year?",
+        topic="Organization",
+    )
+    assert responses
+    assert combined
+    assert likely_new_decision in {"yes", "no", "probably"}
+    assert next_step
+    assert assessment.alignment in {
+        "aligned",
+        "clarification_needed",
+        "potential_deviation",
+        "likely_new_decision_required",
+    }
+    orientation = context.get("memory_orientation", {})
+    assert orientation.get("memory_belongs") == "no_clear_match"
+    assert orientation.get("novelty_assessment") == "new"
 
 
 def test_panel_outcome_distinguishes_decision_modes():
