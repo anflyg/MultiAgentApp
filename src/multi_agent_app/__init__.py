@@ -12,4 +12,5 @@ __all__ = [
     "config",
     "cli",
     "tui",
+    "api_server",
 ]

@@ -2002,6 +2002,17 @@ def _build_parser(config: AppConfig, config_path: str | None = None) -> argparse
     )
 
     subparsers.add_parser("tui", help="Launch Textual terminal UI.")
+    serve_api_parser = subparsers.add_parser(
+        "serve-memory-api",
+        help="Run local HTTP API for memory orientation/search.",
+    )
+    serve_api_parser.add_argument("--host", default="127.0.0.1", help="Bind host.")
+    serve_api_parser.add_argument("--port", type=int, default=8001, help="Bind port.")
+    serve_api_parser.add_argument(
+        "--api-token",
+        default=None,
+        help="Optional bearer token. If omitted, uses MULTI_AGENT_APP_API_TOKEN when set.",
+    )
 
     return parser
 
@@ -3150,6 +3161,22 @@ def main() -> None:
         from .tui import run_tui
 
         run_tui(db_path=args.db_path, app_config=app_config)
+        return
+
+    if args.command == "serve-memory-api":
+        from .api_server import run_memory_api_server
+
+        token = args.api_token if args.api_token is not None else os.getenv("MULTI_AGENT_APP_API_TOKEN")
+        print(
+            f"Starting memory API on http://{args.host}:{args.port} "
+            f"(db={args.db_path}, auth={'on' if token else 'off'})"
+        )
+        run_memory_api_server(
+            db_path=args.db_path,
+            host=args.host,
+            port=args.port,
+            api_token=token,
+        )
         return
 
     try:
