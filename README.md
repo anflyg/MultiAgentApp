@@ -1,146 +1,68 @@
-# MultiAgentApp
+# MultiAgentApp (ChatGPT-first Memory Backend)
 
-En enkel lokal multi-agent-app med Pydantic-modeller, SQLite-persistence och en orchestrator som kan routea uppgifter till namngivna agenter. Innehaller CLI och en Textual-baserad leadership dashboard.
+MultiAgentApp is now a thin backend for ChatGPT Actions:
 
-## Kom igang
+Custom GPT -> Actions -> local HTTP API -> SQLite long-term memory
 
-1. Aktivera venv (fran projektroten):
-   - macOS/Linux: `source .venv/bin/activate`
-   - Windows (PowerShell): `.venv\\Scripts\\Activate.ps1`
-   - Om `python` inte finns i PATH: anvand `python3` eller `.venv/bin/python`.
-2. Uppgradera pip (frivilligt men rekommenderas): `python -m pip install --upgrade pip`
-3. Installera beroenden: `pip install -r requirements.txt`
+## What remains in the core
 
-For snabb forsta anvandning: se [USER_GUIDE.md](USER_GUIDE.md).
+- SQLite persistence for long-term memory (`storage.py`)
+- Generic memory model (`memory_core.py`)
+- Memory retrieval (`memory_retrieval.py`)
+- Memory orientation (`memory_orientation.py`)
+- Thin HTTP API (`api_server.py`)
+- OpenAPI contract for Actions (`openapi/memory_api.openapi.json`)
+- Minimal CLI to:
+  - run orientation once (`memory-orient`)
+  - start the local API (`serve-memory-api`)
 
-## CLI
+## Quick start
 
-- Demo-flode (oforandrat):
-  - `python src/main.py`
-- Alpha demo-setup (snabbaste vagen till meningsfull paneloutput):
-  - `python src/main.py --db-path alpha_demo.db alpha-demo-setup`
-  - Kommandot skapar en demosession, seedar beslut/candidate och kor en panelfraga.
-  - Efter korning far du direkt forslag pa nasta kommandon (show-panel-question, list-panel-questions, tui).
-- Skapa session:
-  - `python src/main.py create-session --name "My Session"`
-- Lagga till task:
-  - `python src/main.py add-task --session-id <session_id> --description "Do work"`
-- Lista tasks:
-  - `python src/main.py list-tasks --session-id <session_id>`
-- Route task:
-  - `python src/main.py route-task --task-id <task_id> --agent writer`
-- Run task (Sprint B explicit command):
-  - `python src/main.py run-task --task-id <task_id> --agent writer`
-- Sessionsstatus:
-  - `python src/main.py session-status --session-id <session_id>`
-- Show session (status + tasks + history):
-  - `python src/main.py show-session --session-id <session_id>`
-- Sessionshistorik:
-  - `python src/main.py session-history --session-id <session_id>`
+Install:
 
-## TUI (Textual leadership dashboard)
+```bash
+cd /Users/andersflygare/Documents/Python/MultiAgentApp
+python3 -m pip install -e '.[dev]'
+```
 
-- Starta TUI via CLI:
-  - `python src/main.py tui --db-path multi_agent.db`
-- Alternativt direkt (om du vill köra modulen):
-  - `PYTHONPATH=src python -m multi_agent_app.tui --db-path multi_agent.db`
+Run API against `SocratesTest.db`:
 
-Dashboarden visar vid start:
-- summary/metrics:
-  - active decisions
-  - pending decision candidates
-  - pending decision suggestions
-  - senaste session-events (senaste 10)
-- active decisions-lista
-- pending decision candidates
-- pending decision suggestions
-- recent activity
-- decision detail-panel for vald aktivt beslut (inklusive inkommande/utgaende links)
-- ask-panel-sektion (topic + question) som kor befintlig decision-panel-logik
+```bash
+cd /Users/andersflygare/Documents/Python/MultiAgentApp
+export MULTI_AGENT_APP_API_TOKEN="replace-with-your-local-token"
+python3 src/main.py --db-path ./SocratesTest.db serve-memory-api --host 127.0.0.1 --port 8001
+```
 
-I dashboarden kan du:
-- refresha all oversikt-data
-- valja ett aktivt beslut och se detaljer
-- skriva topic + question och fa strukturerat panel-svar direkt i UI
+One-off orientation via CLI:
 
-I denna iteration sker fortfarande skapande/hantering via CLI:
-- create/confirm/dismiss av candidates
-- create/accept/dismiss av suggestions
-- explicita link-operations
+```bash
+python3 src/main.py --db-path ./SocratesTest.db memory-orient \
+  --question "Hur bör vi tänka kring expansion i Norge nästa år?" \
+  --limit 3
+```
 
-## Valfritt LLM-providerlage (grund)
+## API endpoints
 
-Panelen kor heuristiskt som standard. Ett litet provider-lager finns nu som grund for framtida riktiga modellanrop.
+- `GET /health`
+- `POST /memory/orient`
+- `POST /memory/search`
+- `GET /memory/{id}`
 
-- Standard utan API-nyckel: heuristisk panel (ingen extern modell kravs).
-- Forberedd OpenAI-provider:
-  - `export MULTI_AGENT_APP_LLM_PROVIDER=openai`
-  - `export OPENAI_API_KEY=<din_nyckel>`
-  - valfritt: `export OPENAI_MODEL=gpt-4o-mini`
-- Forberedd Gemini-provider:
-  - `export MULTI_AGENT_APP_LLM_PROVIDER=gemini`
-  - `export GEMINI_API_KEY=<din_nyckel>`
-  - valfritt: `export GEMINI_MODEL=gemini-2.0-flash`
+See full contract:
 
-Rollspecifika overstyrningar (valfritt):
-- provider per roll:
-  - `LLM_PROVIDER_STRATEG=openai|gemini|heuristic`
-  - `LLM_PROVIDER_ANALYST=openai|gemini|heuristic`
-  - `LLM_PROVIDER_OPERATOR=openai|gemini|heuristic`
-  - `LLM_PROVIDER_GOVERNANCE=openai|gemini|heuristic`
-- modell per provider och roll:
-  - `OPENAI_MODEL_STRATEG`, `OPENAI_MODEL_ANALYST`, `OPENAI_MODEL_OPERATOR`, `OPENAI_MODEL_GOVERNANCE`
-  - `GEMINI_MODEL_STRATEG`, `GEMINI_MODEL_ANALYST`, `GEMINI_MODEL_OPERATOR`, `GEMINI_MODEL_GOVERNANCE`
+- `openapi/memory_api.openapi.json`
 
-Om provider inte ar tillganglig (t.ex. saknad nyckel eller timeout) faller panelen automatiskt tillbaka till heuristik.
-I paneloutput visas detta tydligt via:
-- `Role generation mode: provider=... (model) | enabled=... | available=...`
-- `Role provider map: strateg=openai(...), analyst=gemini(...), ...`
-- `Active advisor roles: ... | Inactive: ...` (intern roll-router per fraga)
-- rollrad per advisor: `Strateg [LLM]` eller `Strateg [heuristic fallback]`
-- `Fallback notes: ...` med korta orsaker per roll (t.ex. `network`, `auth`, `quota`, `empty_response`)
+## Custom GPT pilot guide
 
-## Intern roll-router (ingen ny synlig agent)
+Step-by-step setup for tunnel + Actions import + first pilot calls:
 
-Panelens produktmodell ar fortfarande fyra radgivarperspektiv:
-- strateg
-- analyst
-- operator
-- governance
+- `docs/chatgpt_actions_pilot.md`
 
-En liten intern regelbaserad router valjer nu vilka roller som ar aktiva per fraga, for att balansera kvalitet, kostnad och hastighet.
-Detta ar inte en femte synlig agent i UI.
+## Tests
 
-## Snabb demo fran tomt lage
+Run the retained core suite:
 
-1. Skapa demo-data och forsta panelresultat:
-   - `python src/main.py --db-path alpha_demo.db alpha-demo-setup`
-2. Visa sparad fraga med analys och reasoning:
-   - `python src/main.py --db-path alpha_demo.db show-panel-question --question-id <ID_FRAN_STEG_1>`
-3. Starta TUI med samma databas:
-   - `python src/main.py --db-path alpha_demo.db tui`
-
-Happy path i korthet:
-1. setup: kor `alpha-demo-setup`
-2. inspect: kor `show-panel-question` pa sparad fraga
-3. explore: oppna `tui`
-4. continue: ställ ny fraga via `ask-decision-panel` eller direkt i TUI
-
-## Alpha readiness
-
-- Se [ALPHA_CHECKLIST.md](ALPHA_CHECKLIST.md) for konkret "go/no-go" innan forsta alfa.
-
-## Paketstruktur
-
-- `src/multi_agent_app/models.py` - Pydantic-modeller for Session, Task, AgentAction, MemoryItem, SessionEvent.
-- `src/multi_agent_app/storage.py` - SQLite-baserad persistence.
-- `src/multi_agent_app/orchestrator.py` - Orchestrator som routear uppgifter till agenter och loggar livscykel/history.
-- `src/multi_agent_app/cli.py` - CLI och exempelflode.
-- `src/multi_agent_app/tui.py` - Textual-baserad leadership dashboard.
-- `src/multi_agent_app/panel.py` - Deterministisk decision-panel-logik och alignment-bedomning.
-- `src/main.py` - Entrypoint som vidarebefordrar till CLI.
-
-## Tester
-
-- Kor tester: `pytest`
-- TUI smoke-test: om `textual` ar installerat kor den en minimal import/init-kontroll, annars skippas testet.
+```bash
+cd /Users/andersflygare/Documents/Python/MultiAgentApp
+python3 -m pytest
+```

@@ -1,16 +1,11 @@
-"""MultiAgentApp package."""
+"""MultiAgentApp ChatGPT-first memory backend package."""
 
 __all__ = [
-    "agents",
-    "models",
-    "storage",
-    "orchestrator",
-    "llm",
+    "api_server",
+    "cli",
     "memory_core",
     "memory_retrieval",
     "memory_orientation",
-    "config",
-    "cli",
-    "tui",
-    "api_server",
+    "models",
+    "storage",
 ]
