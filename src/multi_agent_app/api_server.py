@@ -6,6 +6,9 @@ from datetime import datetime
 from urllib.parse import parse_qs
 from wsgiref.simple_server import WSGIServer, make_server
 
+from pydantic import ValidationError
+
+from .memory_core import SocratesMemory
 from .memory_orientation import orient_question_to_memory_by_db
 from .memory_retrieval import get_workspace_memory, list_workspace_memories, retrieve_relevant_memory_matches
 from .storage import Storage
@@ -57,6 +60,48 @@ def create_memory_api_app(
                     status="400 Bad Request",
                 )
             return _json_response(start_response, result.model_dump())
+
+        if method == "POST" and path == "/memory":
+            payload = _read_json_body(environ)
+            workspace_id = str(payload.get("workspace_id", "")).strip()
+            if not workspace_id:
+                return _json_response(
+                    start_response,
+                    {"error": "workspace_id is required"},
+                    status="400 Bad Request",
+                )
+
+            normalized_payload = dict(payload)
+            normalized_payload["workspace_id"] = workspace_id
+            normalized_payload["title"] = str(payload.get("title", "")).strip()
+            normalized_payload["summary"] = str(payload.get("summary", "")).strip()
+            if not normalized_payload["title"]:
+                return _json_response(
+                    start_response,
+                    {"error": "title is required"},
+                    status="400 Bad Request",
+                )
+            try:
+                memory = SocratesMemory.model_validate(normalized_payload)
+            except ValidationError as exc:
+                return _json_response(
+                    start_response,
+                    {"error": f"invalid memory payload: {exc.errors()[0]['msg']}"},
+                    status="400 Bad Request",
+                )
+
+            storage = Storage(db_path=db_path)
+            try:
+                if storage.get_workspace(workspace_id) is None:
+                    return _json_response(
+                        start_response,
+                        {"error": f"workspace not found: {workspace_id}"},
+                        status="400 Bad Request",
+                    )
+                storage.save_socrates_memory(memory)
+            finally:
+                storage.close()
+            return _json_response(start_response, memory.model_dump(), status="201 Created")
 
         if method == "GET" and path.startswith("/memory/"):
             memory_id = path.removeprefix("/memory/").strip()

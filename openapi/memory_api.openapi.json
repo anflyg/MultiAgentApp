@@ -2,17 +2,12 @@
   "openapi": "3.1.0",
   "info": {
     "title": "MultiAgentApp Memory API",
-    "version": "0.2.0",
+    "version": "0.3.0",
     "description": "Thin local API for memory orientation and memory read/search. Intended for first Custom GPT Action pilot."
   },
   "servers": [
     {
-      "url": "http://127.0.0.1:8001",
-      "description": "Local development server"
-    },
-    {
-      "url": "https://your-tunnel-host.example",
-      "description": "Public HTTPS tunnel URL for ChatGPT Actions"
+      "url": "https://prelanguage-unreduced-abdullah.ngrok-free.dev"
     }
   ],
   "security": [
@@ -323,6 +318,92 @@
             }
           }
         }
+      },
+      "MemoryCreateRequest": {
+        "type": "object",
+        "required": [
+          "workspace_id",
+          "title"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Optional explicit id. If omitted, server generates one."
+          },
+          "workspace_id": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "summary": {
+            "type": "string",
+            "description": "Optional summary. Defaults to empty string."
+          },
+          "memory_type": {
+            "type": "string",
+            "default": "general"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "draft",
+              "archived"
+            ],
+            "default": "active"
+          },
+          "decision_text": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "assumptions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "risks": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "triggers": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "relations": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          },
+          "sources": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          },
+          "revision_notes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
       }
     }
   },
@@ -498,6 +579,57 @@
           },
           "404": {
             "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/memory": {
+      "post": {
+        "tags": [
+          "memory"
+        ],
+        "operationId": "postMemoryCreate",
+        "summary": "Create one memory object",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MemoryCreateRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Memory object created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MemoryObject"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
             "content": {
               "application/json": {
                 "schema": {

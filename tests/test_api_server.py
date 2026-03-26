@@ -117,3 +117,41 @@ def test_api_memory_read_endpoint_and_auth(tmp_path):
     assert authorized_status == 200
     assert payload["id"] == memory.id
     assert payload["title"] == "Liquidity safety memory"
+
+
+def test_api_memory_create_endpoint(tmp_path):
+    db_path = tmp_path / "api_create.db"
+    storage = Storage(db_path=str(db_path))
+    try:
+        workspace = storage.create_workspace(name="API Create WS", description="")
+    finally:
+        storage.close()
+
+    app = create_memory_api_app(db_path=str(db_path), api_token="secret-token")
+
+    status_code, _, payload = _call_app(
+        app,
+        method="POST",
+        path="/memory",
+        auth_header="Bearer secret-token",
+        payload={
+            "workspace_id": workspace.id,
+            "title": "Board decision memory",
+            "summary": "Preserve optionality in Q3 funding timeline.",
+            "assumptions": ["Revenue target remains on track"],
+        },
+    )
+    assert status_code == 201
+    assert payload["workspace_id"] == workspace.id
+    assert payload["title"] == "Board decision memory"
+    assert payload["summary"] == "Preserve optionality in Q3 funding timeline."
+
+    read_status, _, read_payload = _call_app(
+        app,
+        method="GET",
+        path=f"/memory/{payload['id']}",
+        auth_header="Bearer secret-token",
+    )
+    assert read_status == 200
+    assert read_payload["id"] == payload["id"]
+    assert read_payload["title"] == "Board decision memory"

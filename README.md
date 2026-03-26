@@ -44,6 +44,7 @@ python3 src/main.py --db-path ./SocratesTest.db memory-orient \
 ## API endpoints
 
 - `GET /health`
+- `POST /memory`
 - `POST /memory/orient`
 - `POST /memory/search`
 - `GET /memory/{id}`
@@ -65,4 +66,43 @@ Run the retained core suite:
 ```bash
 cd /Users/andersflygare/Documents/Python/MultiAgentApp
 python3 -m pytest
+```
+
+## Windows 10 quick start
+
+Install once:
+
+1. Python 3.11+ (and check "Add python.exe to PATH")
+2. ngrok (install + `ngrok config add-authtoken <DIN_TOKEN>`)
+3. Project dependencies:
+
+```powershell
+cd C:\path\to\MultiAgentApp
+py -3 -m venv .venv
+.venv\Scripts\python.exe -m pip install -e ".[dev]"
+```
+
+Start local API + ngrok (robust startup + health checks):
+
+```powershell
+cd C:\path\to\MultiAgentApp
+.\start_socrates_local.ps1
+```
+
+or:
+
+```cmd
+start_socrates_local.cmd
+```
+
+Stop:
+
+```powershell
+.\stop_socrates_local.ps1
+```
+
+or:
+
+```cmd
+stop_socrates_local.cmd
 ```

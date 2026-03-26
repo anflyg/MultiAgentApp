@@ -70,6 +70,7 @@ If needed, update `servers` in the OpenAPI file to your active tunnel host.
 3. Set Authentication to bearer token and use the same token as `MULTI_AGENT_APP_API_TOKEN`.
 4. Confirm actions include:
    - `getHealth`
+   - `postMemoryCreate`
    - `postMemoryOrient`
    - `postMemorySearch`
    - `getMemoryById`
@@ -81,9 +82,10 @@ In GPT chat:
 1. "Run health check on the memory API."
 2. "Orient this question: Hur bör vi tänka kring expansion i Norge nästa år?"
 3. "Search memory for norge expansion and summarize top hits."
+4. "Create a memory with title 'Norge expansion 2027' in workspace <id>."
 
 ## Notes / current limitations
 
 - This is a thin local pilot surface, not production deployment.
 - Auth is intentionally simple bearer-token validation.
-- No memory write/update endpoints are included in this pilot.
+- Memory update/delete endpoints are not included in this pilot.
